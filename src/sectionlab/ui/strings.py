@@ -111,6 +111,10 @@ UI: dict[str, str] = {
     "template_mode": "Plantilla",
     "free_mode": "Geometría libre",
     "vertex_table": "Vértices",
+    "contour": "Contorno",
+    "outer_contour": "Exterior",
+    "inner_contour": "Interior",
+    "index": "N°",
     "results": "Resultados",
     "parameters": "Parámetros",
     "property": "Propiedad",
@@ -132,6 +136,10 @@ UI: dict[str, str] = {
     "cancel": "Cancelar",
     "close": "Cerrar",
     "ready": "Dibuja el contorno o elige una plantilla.",
+    "applied": "Plantilla aplicada",
+    "calculated": "Resultados actualizados",
+    "saved": "Proyecto guardado",
+    "converted": "Geometría libre: ya puedes editar los vértices",
 }
 
 _GENERIC_ERROR = "Ocurrió un problema que esta versión no reconoce."
