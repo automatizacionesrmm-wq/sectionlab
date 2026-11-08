@@ -127,7 +127,9 @@ def results_to_csv(rows: Sequence[Mapping[str, float]]) -> str
 @dataclass(frozen=True)
 class Point: x: float; y: float
 @dataclass
-class Contour: points: list[Point]                        # implicit closing edge
+class Contour:
+    points: list[Point]
+    closed: bool = True                                   # False == drawn path leaves a gap
 @dataclass
 class Section:
     outer: Contour
@@ -143,6 +145,14 @@ class IssueCode(str, Enum): OPEN_CONTOUR; TOO_FEW_VERTICES; DUPLICATE_POINTS;
 @dataclass(frozen=True)
 class ValidationIssue: code: IssueCode; points: tuple[Point, ...]
 CLOSURE_TOLERANCE_MM = 1e-6
+# Rules, applied to outer and inner contour alike:
+#   closed is False            -> OPEN_CONTOUR, reported at the missing closing edge
+#   fewer than 3 points        -> TOO_FEW_VERTICES
+#   two points within tolerance-> DUPLICATE_POINTS
+#   non-simple ring (shapely)  -> SELF_INTERSECTION
+#   |signed area| negligible at the contour's own scale (tol * largest extent) -> ZERO_AREA
+# A self-intersecting ring has no meaningful signed area, so ZERO_AREA is not reported for it.
+# A typed vertex list is treated as closed; only canvas drawing can produce an open path.
 def validate_section(section: Section) -> list[ValidationIssue]   # empty == valid
 
 # sectionlab.core.engine
@@ -164,6 +174,20 @@ class TemplateParam: key: str; default: float; minimum: float
 def parameters(kind: TemplateKind) -> tuple[TemplateParam, ...]
 def default_params(kind: TemplateKind) -> dict[str, float]
 def build_section(kind: TemplateKind, params: Mapping[str, float]) -> Section
+
+# Fixed parameter keys and defaults, per template (defaults in mm):
+#   RECTANGLE  b=100  h=200
+#   RECT_HOLLOW b=100 h=200 t=6
+#   CIRCLE     d=100
+#   PIPE       d=100  t=10
+#   TRIANGLE   b=100  h=100 offset=0        (offset = apex offset from base centre)
+#   POLYGON    n=6    r=50                 (n = sides, r = circumradius)
+#   I_PROFILE  h=200  b=100 tw=6  tf=10
+#   H_PROFILE  h=200  b=200 tw=8  tf=12
+#   U_CHANNEL  h=200  b=80  tw=6  tf=10
+#   L_ANGLE    b=100  h=100 t=10
+#   T_PROFILE  h=150  b=100 tw=8  tf=12
+# `n` is a dimensionless count (minimum 3); every other parameter is a length in mm.
 
 # sectionlab.core.document
 SCHEMA_VERSION = 1
