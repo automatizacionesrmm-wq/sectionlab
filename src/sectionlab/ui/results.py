@@ -48,6 +48,11 @@ def convert(field: str, value: float, unit: Unit) -> float:
     return value
 
 
+def format_length(value_mm: float, unit: Unit, decimals: int) -> str:
+    """Format one millimetre value for the screen, in the active unit."""
+    return format_value(from_mm(value_mm, unit), decimals)
+
+
 def result_rows(props: SectionProperties, unit: Unit) -> list[tuple[str, float, str]]:
     """Ordered (label, value in `unit`, unit symbol) rows for every reported property."""
     rows: list[tuple[str, float, str]] = []
@@ -93,7 +98,7 @@ class ResultsTable(QTableWidget):
 
         rows = result_rows(props, unit)
         self.setRowCount(len(rows))
-        self.setSpan(0, 0, 1, 1)
+        self.clearSpans()
         for index, (label, value, symbol) in enumerate(rows):
             self.setItem(index, 0, QTableWidgetItem(label))
             value_item = QTableWidgetItem(format_value(value, decimals))
