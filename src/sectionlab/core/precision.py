@@ -30,8 +30,8 @@ def format_full(value: float) -> str:
     return repr(float(value))
 
 
-def results_to_csv(rows: Sequence[Mapping[str, float]]) -> str:
-    """Render result rows as CSV: header from the first row's order, full precision values."""
+def results_to_csv(rows: Sequence[Mapping[str, str | float]]) -> str:
+    """Render result rows as CSV: header from the first row's order, floats at full precision."""
     if not rows:
         return ""
 
@@ -40,5 +40,9 @@ def results_to_csv(rows: Sequence[Mapping[str, float]]) -> str:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(keys)
     for row in rows:
-        writer.writerow([format_full(row[key]) for key in keys])
+        writer.writerow([_cell(row[key]) for key in keys])
     return buffer.getvalue()
+
+
+def _cell(value: str | float) -> str:
+    return value if isinstance(value, str) else format_full(value)
