@@ -87,8 +87,9 @@ observations 3024–3036 (session `manual-save-sectionlab`).
 
 - **D1 Curved templates are exact.** `circle` and `pipe` are calculated from closed-form
   formulas (`A = πD²/4`, `I = πD⁴/64`, `S = I/(D/2)`, `J` unused in v1) so textbook
-  verification is exact. Their on-screen representation is a 512-segment polygon; the polygon
-  is presentation only and never feeds the calculation.
+  verification is exact. Their on-screen representation is a 360-segment polygon; the polygon
+  is presentation only and never feeds the calculation. Every other section, free geometry
+  included, is meshed and calculated by `sectionproperties`.
 - **D2 Angular shapes are polygonal.** Every other template is an exact straight-line polygon
   built from its parameters, with sharp corners per S10.
 - **D3 Contour winding.** Free-geometry contours are normalized to counter-clockwise winding
@@ -99,6 +100,13 @@ observations 3024–3036 (session `manual-save-sectionlab`).
   float (`repr`), never a fixed format, so CSV re-imports to the identical value.
 - **D6 Messages are localized in the UI layer.** Core validation returns stable English codes;
   the Spanish text for each code lives in the UI strings module (T12).
+- **D7 Mesh density.** `sectionproperties` meshes a section with `mesh_size = max(extent/10,
+  0.5 mm)`, where `extent` is the longest bounding-box side. Verified on solid, hollow and
+  triangular sections: relative error at machine precision (`< 1e-12`) and about 0.5 s per
+  calculation. Denser meshes only cost time; the default keeps `Calcular` responsive.
+- **D8 Reported sign conventions.** `Ixy = ∫xy dA`, so an L angle in the first quadrant reports
+  a negative product of inertia. The principal angle is the solver's principal-axis angle
+  folded into `(-90°, 90°]`, counter-clockwise from `+x`.
 
 ## Core API contract
 
@@ -164,7 +172,9 @@ class SectionProperties:   # area mm², lengths mm, inertias mm⁴, moduli mm³,
     rx: float; ry: float; r1: float; r2: float
     sx: float; sy: float
     x_min: float; x_max: float; y_min: float; y_max: float
-def calculate(section: Section) -> SectionProperties             # raises on invalid section
+MESH_DIVISOR = 10; MIN_MESH_SIZE_MM = 0.5                        # see D7
+class InvalidSectionError(ValueError): issues: list[ValidationIssue]
+def calculate(section: Section) -> SectionProperties             # raises InvalidSectionError
 
 # sectionlab.core.templates
 class TemplateKind(str, Enum): RECTANGLE; RECT_HOLLOW; CIRCLE; PIPE; TRIANGLE; POLYGON;
@@ -173,7 +183,9 @@ class TemplateKind(str, Enum): RECTANGLE; RECT_HOLLOW; CIRCLE; PIPE; TRIANGLE; P
 class TemplateParam: key: str; default: float; minimum: float
 def parameters(kind: TemplateKind) -> tuple[TemplateParam, ...]
 def default_params(kind: TemplateKind) -> dict[str, float]
-def build_section(kind: TemplateKind, params: Mapping[str, float]) -> Section
+class TemplateParameterError(ValueError): code: str              # stable English code
+class TemplateParam(key: str; default: float; minimum: float)
+def build_section(kind: TemplateKind, params: Mapping[str, float] | None = None) -> Section
 
 # Fixed parameter keys and defaults, per template (defaults in mm):
 #   RECTANGLE  b=100  h=200
