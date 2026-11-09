@@ -11,6 +11,7 @@ from sectionlab.core.units import Unit
 from sectionlab.ui import strings, settings as settings_module
 from sectionlab.ui.settings import AppSettings, SettingsDialog, load_settings, save_settings, unit_label
 from sectionlab.ui.template_panel import TemplatePanel
+from sectionlab.ui.theme import Theme
 
 
 def test_default_settings() -> None:
@@ -114,3 +115,24 @@ def test_setting_parameters_shows_them_in_the_active_unit(panel: TemplatePanel) 
 def test_free_geometry_mode_is_requested(qtbot, panel: TemplatePanel) -> None:
     with qtbot.waitSignal(panel.freeModeRequested, timeout=200):
         panel._free.click()
+
+
+def test_the_theme_round_trips_through_qsettings(isolated_store) -> None:
+    saved = AppSettings(unit=Unit.MM, decimals=2, theme=Theme.LIGHT)
+    save_settings(saved)
+    assert load_settings() == saved
+
+
+def test_an_unknown_stored_theme_falls_back_to_dark(isolated_store) -> None:
+    store = QSettings("SectionLabTests", "isolated")
+    store.setValue("theme", "solarized")
+    store.sync()
+    assert load_settings().theme is Theme.DARK
+
+
+def test_the_dialog_reports_the_chosen_theme() -> None:
+    dialog = SettingsDialog(AppSettings(theme=Theme.LIGHT))
+    assert dialog.values().theme is Theme.LIGHT
+    index = dialog._theme.findData(Theme.DARK.value)
+    dialog._theme.setCurrentIndex(index)
+    assert dialog.values().theme is Theme.DARK

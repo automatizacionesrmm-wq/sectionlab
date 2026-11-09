@@ -11,6 +11,7 @@ from sectionlab.core.units import Unit
 from sectionlab.ui import strings
 from sectionlab.ui.app import MainWindow
 from sectionlab.ui.settings import AppSettings
+from sectionlab.ui.theme import DARK, LIGHT, Theme
 
 pytestmark = pytest.mark.usefixtures("qtbot")
 
@@ -204,3 +205,41 @@ def test_deleting_a_selected_vertex(window: MainWindow) -> None:
     window.canvas.select_vertex("outer", 1)
     window.delete_selected_vertex()
     assert len(window.section().outer.points) == 2
+
+
+def test_a_new_window_starts_in_the_dark_theme(window: MainWindow) -> None:
+    assert window.current_theme() is Theme.DARK
+
+
+def test_toggling_switches_between_the_two_themes(window: MainWindow) -> None:
+    window.toggle_theme()
+    assert window.current_theme() is Theme.LIGHT
+    window.toggle_theme()
+    assert window.current_theme() is Theme.DARK
+
+
+def test_the_theme_reaches_the_application_stylesheet(window: MainWindow) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    window.set_theme(Theme.LIGHT)
+    assert LIGHT["accent"] in QApplication.instance().styleSheet()
+    window.set_theme(Theme.DARK)
+    assert DARK["accent"] in QApplication.instance().styleSheet()
+
+
+def test_choosing_a_template_draws_it_without_pressing_apply(window: MainWindow) -> None:
+    combo = window.template_panel._kind
+    combo.setCurrentIndex(combo.findData(TemplateKind.I_PROFILE.value))
+    assert window.section().template is not None
+    assert window.section().outer.points
+
+
+def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
+    from PySide6.QtWidgets import QToolBar
+
+    toolbar = window.findChild(QToolBar, "main_toolbar")
+    assert toolbar is not None
+    actions = [action for action in toolbar.actions() if not action.isSeparator()]
+    assert len(actions) == 14
+    for action in actions:
+        assert not action.icon().isNull(), action.text()

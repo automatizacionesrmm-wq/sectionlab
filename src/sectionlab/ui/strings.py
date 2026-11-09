@@ -151,6 +151,23 @@ UI: dict[str, str] = {
     "calculated": "Resultados actualizados",
     "saved": "Proyecto guardado",
     "free_started": "Geometría libre: haz clic para añadir vértices",
+    "short_calculate": "Calcular",
+    "short_open": "Abrir",
+    "short_save": "Guardar",
+    "short_csv": "CSV",
+    "short_undo": "Deshacer",
+    "short_redo": "Rehacer",
+    "short_insert": "Insertar",
+    "short_delete": "Borrar",
+    "short_ortho": "Orto",
+    "short_zoom_in": "Acercar",
+    "short_zoom_out": "Alejar",
+    "short_fit": "Ajustar",
+    "short_theme": "Tema",
+    "short_settings": "Opciones",
+    "theme": "Tema",
+    "theme_dark": "Oscuro",
+    "theme_light": "Claro",
 }
 
 _GENERIC_ERROR = "Ocurrió un problema que esta versión no reconoce."

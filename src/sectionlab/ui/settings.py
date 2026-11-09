@@ -18,11 +18,14 @@ from PySide6.QtWidgets import (
 from sectionlab.core.precision import DEFAULT_DECIMALS, MAX_DECIMALS, MIN_DECIMALS
 from sectionlab.core.units import Unit
 from sectionlab.ui import strings
+from sectionlab.ui.theme import Theme
 
 ORGANIZATION = "SectionLab"
 APPLICATION = "SectionLab"
 
 _UNIT_LABELS = {Unit.MM: "mm", Unit.CM: "cm", Unit.M: "m", Unit.IN: "in"}
+
+_THEME_LABELS = {Theme.DARK: "theme_dark", Theme.LIGHT: "theme_light"}
 
 
 def unit_label(unit: Unit) -> str:
@@ -36,6 +39,7 @@ class AppSettings:
 
     unit: Unit = Unit.MM
     decimals: int = DEFAULT_DECIMALS
+    theme: Theme = Theme.DARK
 
 
 def load_settings() -> AppSettings:
@@ -50,13 +54,18 @@ def load_settings() -> AppSettings:
     except (TypeError, ValueError):
         decimals = DEFAULT_DECIMALS
     decimals = min(max(decimals, MIN_DECIMALS), MAX_DECIMALS)
-    return AppSettings(unit=unit, decimals=decimals)
+    try:
+        theme = Theme(str(store.value("theme", Theme.DARK.value)))
+    except ValueError:
+        theme = Theme.DARK
+    return AppSettings(unit=unit, decimals=decimals, theme=theme)
 
 
 def save_settings(settings: AppSettings) -> None:
     store = QSettings(ORGANIZATION, APPLICATION)
     store.setValue("unit", settings.unit.value)
     store.setValue("decimals", settings.decimals)
+    store.setValue("theme", settings.theme.value)
 
 
 class SettingsDialog(QDialog):
@@ -74,9 +83,15 @@ class SettingsDialog(QDialog):
         self._decimals.setRange(MIN_DECIMALS, MAX_DECIMALS)
         self._decimals.setValue(settings.decimals)
 
+        self._theme = QComboBox(self)
+        for theme in (Theme.DARK, Theme.LIGHT):
+            self._theme.addItem(strings.label_for(_THEME_LABELS[theme]), theme.value)
+        self._theme.setCurrentIndex(max(self._theme.findData(settings.theme.value), 0))
+
         form = QFormLayout()
         form.addRow(strings.label_for("active_unit"), self._unit)
         form.addRow(strings.label_for("decimals"), self._decimals)
+        form.addRow(strings.label_for("theme"), self._theme)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
@@ -94,4 +109,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     def values(self) -> AppSettings:
-        return AppSettings(unit=Unit(self._unit.currentData()), decimals=self._decimals.value())
+        return AppSettings(
+            unit=Unit(self._unit.currentData()),
+            decimals=self._decimals.value(),
+            theme=Theme(self._theme.currentData()),
+        )

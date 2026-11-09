@@ -9,19 +9,24 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QDialog,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QScrollArea,
     QSplitter,
+    QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -39,6 +44,7 @@ from sectionlab.core.units import Unit
 from sectionlab.core.validation import ValidationIssue, validate_section
 from sectionlab.ui import strings
 from sectionlab.ui.canvas import INNER, OUTER, CanvasView
+from sectionlab.ui.icons import icon
 from sectionlab.ui.results import ResultsTable, format_length
 from sectionlab.ui.settings import (
     AppSettings,
@@ -48,6 +54,7 @@ from sectionlab.ui.settings import (
     unit_label,
 )
 from sectionlab.ui.template_panel import TemplatePanel
+from sectionlab.ui.theme import Theme, apply_theme, tokens
 from sectionlab.ui.vertex_table import VertexTable
 
 APP_NAME = strings.UI["window_title"]
@@ -67,9 +74,13 @@ class MainWindow(QMainWindow):
         self._settings = settings or load_settings()
         self._unit = self._settings.unit
         self._decimals = self._settings.decimals
+        self._theme = self._settings.theme
         self._props: SectionProperties | None = None
         self._path: Path | None = None
         self._last_error: str | None = None
+        self._template_kind: str | None = None
+        self._icon_targets: list[tuple[QAction, str]] = []
+        self._glyphs: list[tuple[QLabel, str]] = []
 
         self.canvas = CanvasView(self)
         self.template_panel = TemplatePanel(self)
@@ -80,13 +91,15 @@ class MainWindow(QMainWindow):
         self._snap_label = QLabel(self)
         self._unit_label = QLabel(self)
         self._message_label = QLabel(self)
-        self.statusBar().addWidget(self._cursor_label)
-        self.statusBar().addWidget(self._unit_label)
-        self.statusBar().addWidget(self._snap_label)
+        for label in (self._cursor_label, self._snap_label, self._unit_label, self._message_label):
+            label.setObjectName("status")
+            self.statusBar().addWidget(label)
         self.statusBar().addPermanentWidget(self._message_label)
 
         self._build_layout()
         self._build_actions()
+        self._decorate_toolbar()
+        self._apply_theme()
 
         self.canvas.sectionChanged.connect(self._on_section_changed)
         self.canvas.cursorMoved.connect(self._on_cursor_moved)
@@ -105,33 +118,59 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ construction
 
     def _build_layout(self) -> None:
-        side = QWidget(self)
-        side_layout = QVBoxLayout(side)
-        side_layout.setContentsMargins(0, 0, 0, 0)
-        side_layout.addWidget(QLabel(strings.label_for("vertex_table"), side))
-        side_layout.addWidget(self.vertex_table, 2)
-        side_layout.addWidget(QLabel(strings.label_for("results"), side))
-        side_layout.addWidget(self.results_table, 3)
+        dock = QWidget(self)
+        dock_layout = QVBoxLayout(dock)
+        dock_layout.setContentsMargins(8, 8, 8, 8)
+        dock_layout.setSpacing(8)
+        dock_layout.addWidget(
+            self._panel(strings.label_for("template_mode"), "template", self.template_panel)
+        )
+        dock_layout.addWidget(
+            self._panel(strings.label_for("vertex_table"), "vertex", self.vertex_table), 2
+        )
+        dock_layout.addWidget(
+            self._panel(strings.label_for("results"), "calculate", self.results_table), 3
+        )
 
-        panel = QWidget(self)
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(0, 0, 0, 0)
-        panel_layout.addWidget(self.template_panel)
-        panel_layout.addStretch(1)
-
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(side)
+        side = QScrollArea(self)
+        side.setWidgetResizable(True)
+        side.setWidget(dock)
+        side.setFrameShape(QFrame.Shape.NoFrame)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(self.canvas)
-        splitter.addWidget(scroll)
-        splitter.addWidget(panel)
+        splitter.addWidget(side)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
-        splitter.setStretchFactor(2, 2)
-        splitter.setSizes([500, 340, 340])
+        splitter.setSizes([760, 410])
+        splitter.setChildrenCollapsible(False)
         self.setCentralWidget(splitter)
+
+    def _panel(self, title: str, glyph: str, content: QWidget, stretch: int = 1) -> QFrame:
+        """A titled inspector card: icon plus caption over the widget it describes."""
+        frame = QFrame(self)
+        frame.setObjectName("panel")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QWidget(frame)
+        header.setObjectName("panel_header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(10, 6, 10, 6)
+        header_layout.setSpacing(7)
+        mark = QLabel(header)
+        header_layout.addWidget(mark)
+        caption = QLabel(title.upper(), header)
+        caption.setObjectName("panel_title")
+        header_layout.addWidget(caption)
+        header_layout.addStretch(1)
+        layout.addWidget(header)
+
+        content.setParent(frame)
+        layout.addWidget(content, stretch)
+        self._glyphs.append((mark, glyph))
+        return frame
 
     def _build_actions(self) -> None:
         toolbar = self.addToolBar(strings.label_for("main_toolbar"))
@@ -141,7 +180,6 @@ class MainWindow(QMainWindow):
         self.action_calculate = QAction(strings.label_for("calculate"), self)
         self.action_calculate.setShortcut(QKeySequence("Ctrl+Return"))
         self.action_calculate.triggered.connect(self.calculate_now)
-        toolbar.addAction(self.action_calculate)
 
         self.action_open = QAction(strings.label_for("open"), self)
         self.action_open.setShortcut(QKeySequence.StandardKey.Open)
@@ -182,6 +220,10 @@ class MainWindow(QMainWindow):
         self.action_fit.setShortcut(QKeySequence("Ctrl+0"))
         self.action_fit.triggered.connect(self.canvas.fit_to_content)
 
+        self.action_theme = QAction(strings.label_for("theme"), self)
+        self.action_theme.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        self.action_theme.triggered.connect(self.toggle_theme)
+
         self.action_settings = QAction(strings.label_for("settings"), self)
         self.action_settings.triggered.connect(self.open_settings_dialog)
 
@@ -206,21 +248,84 @@ class MainWindow(QMainWindow):
             view_menu.addAction(action)
         view_menu.addSeparator()
         view_menu.addAction(self.action_ortho)
+        view_menu.addAction(self.action_theme)
 
         settings_menu = self.menuBar().addMenu(strings.label_for("menu_settings"))
         settings_menu.addAction(self.action_settings)
 
-        for action in (
-            self.action_undo,
-            self.action_redo,
-            self.action_delete_vertex,
-            self.action_insert_vertex,
-            self.action_zoom_in,
-            self.action_zoom_out,
-            self.action_fit,
-            self.action_ortho,
-        ):
-            toolbar.addAction(action)
+    def _decorate_toolbar(self) -> None:
+        """Replace the flat toolbar with icon groups and a primary calculate button."""
+        toolbar = self.findChild(QToolBar, "main_toolbar")
+        if toolbar is None:
+            return
+        pairs = [
+            (self.action_calculate, "calculate"),
+            (self.action_open, "open"),
+            (self.action_save, "save"),
+            (self.action_export, "csv"),
+            (self.action_undo, "undo"),
+            (self.action_redo, "redo"),
+            (self.action_insert_vertex, "insert"),
+            (self.action_delete_vertex, "delete"),
+            (self.action_ortho, "ortho"),
+            (self.action_zoom_in, "zoom_in"),
+            (self.action_zoom_out, "zoom_out"),
+            (self.action_fit, "fit"),
+            (self.action_theme, "theme"),
+            (self.action_settings, "settings"),
+        ]
+        self._icon_targets = list(pairs)
+        for action in list(toolbar.actions()):
+            toolbar.removeAction(action)
+        toolbar.setIconSize(QSize(20, 20))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        toolbar.setMovable(False)
+        groups = (pairs[0:1], pairs[1:4], pairs[4:6], pairs[6:9], pairs[9:12], pairs[12:14])
+        for index, group in enumerate(groups):
+            if index:
+                toolbar.addSeparator()
+            for action, _ in group:
+                toolbar.addAction(action)
+        button = toolbar.widgetForAction(self.action_calculate)
+        if isinstance(button, QToolButton):
+            button.setObjectName("primary")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setMinimumWidth(128)
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    # ------------------------------------------------------------------ theme
+
+    def current_theme(self) -> Theme:
+        return self._theme
+
+    def toggle_theme(self) -> None:
+        """Swap the dark and light surfaces."""
+        self.set_theme(Theme.LIGHT if self._theme is Theme.DARK else Theme.DARK)
+
+    def set_theme(self, theme: Theme | str) -> None:
+        self._theme = Theme(theme)
+        self._apply_theme()
+        if self._interactive:
+            self._settings = replace(self._settings, theme=self._theme)
+            save_settings(self._settings)
+
+    def _apply_theme(self) -> None:
+        apply_theme(self, self._theme)
+        self.canvas.apply_palette(tokens(self._theme))
+        self._refresh_icons()
+
+    def _refresh_icons(self) -> None:
+        palette = tokens(self._theme)
+        for action, name in self._icon_targets:
+            colour = palette["accent_text"] if name == "calculate" else palette["text_dim"]
+            glyph = name
+            if name == "theme":
+                glyph = "light" if self._theme is Theme.DARK else "moon"
+            action.setIcon(icon(glyph, colour, 20))
+            action.setIconText(strings.label_for(f"short_{name}"))
+        for label, name in self._glyphs:
+            label.setPixmap(icon(name, palette["text_faint"], 13).pixmap(13, 13))
 
     # ------------------------------------------------------------------ public state
 
@@ -252,8 +357,12 @@ class MainWindow(QMainWindow):
             code = getattr(error, "code", "")
             self._report_error(strings.error_message(code) if code else str(error))
             return False
+        refit = self._template_kind != kind
         self.canvas.set_section(section)
         self.canvas.set_editable(False)
+        if refit:
+            self.canvas.fit_to_content()
+        self._template_kind = kind
         self.template_panel.set_kind(kind)
         self._path = None
         self._set_message(f"{strings.label_for("applied")}: {strings.label_for(kind)}")
@@ -264,7 +373,9 @@ class MainWindow(QMainWindow):
         """Discard the current geometry and start an empty free drawing (spec S10)."""
         self.canvas.set_section(Section(outer=Contour(points=[])))
         self.canvas.set_editable(True)
+        self.canvas.reset_view()
         self.canvas.begin_drawing()
+        self._template_kind = None
         self._path = None
         self._props = None
         self._set_message(strings.label_for("free_started"))
@@ -340,6 +451,7 @@ class MainWindow(QMainWindow):
         self._unit = unit
         self.canvas.set_section(section)
         self.canvas.set_editable(section.template is None)
+        self.canvas.fit_to_content()
         if section.template is not None:
             self.template_panel.set_kind(section.template.kind)
             self.template_panel.set_params(section.template.params)
@@ -399,6 +511,7 @@ class MainWindow(QMainWindow):
             self._settings = dialog.values()
             self.set_unit(self._settings.unit)
             self.set_decimals(self._settings.decimals)
+            self.set_theme(self._settings.theme)
 
     # ------------------------------------------------------------------ internals
 
