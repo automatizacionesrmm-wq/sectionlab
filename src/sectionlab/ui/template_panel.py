@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -36,6 +36,10 @@ class TemplatePanel(QWidget):
 
     applied = Signal(str, object)
     freeModeRequested = Signal()
+    # Keep the contour, forget the template and leave the vertices to the user.
+    convertRequested = Signal()
+    # Which parameter is being typed, in millimetres, so the drawing can point at it.
+    parameterFocused = Signal(str, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -63,6 +67,9 @@ class TemplatePanel(QWidget):
         group_layout.addWidget(self._form_host)
 
         self._apply = QPushButton(strings.label_for("apply"), self)
+        self._convert = QPushButton(strings.label_for("convert_free"), self)
+        self._convert.setObjectName("ghost")
+        self._convert.setToolTip(strings.label_for("convert_free_tip"))
         self._free = QPushButton(strings.label_for("free_mode"), self)
         self._free.setObjectName("ghost")
 
@@ -72,9 +79,11 @@ class TemplatePanel(QWidget):
         layout.addWidget(self._kind)
         layout.addWidget(self._group)
         layout.addWidget(self._apply)
+        layout.addWidget(self._convert)
         layout.addWidget(self._free)
 
         self._apply.clicked.connect(self._emit_applied)
+        self._convert.clicked.connect(self.convertRequested.emit)
         self._free.clicked.connect(self.freeModeRequested.emit)
         self._rebuild_form()
 
@@ -149,6 +158,8 @@ class TemplatePanel(QWidget):
             self._spins[param.key] = spin
             self._mm[param.key] = defaults[param.key]
             self._rendered[param.key] = value
+            spin.setProperty("param_key", param.key)
+            spin.installEventFilter(self)
             spin.valueChanged.connect(self._schedule_apply)
             self._form.addRow(strings.label_for(param.key), spin)
 
@@ -158,9 +169,35 @@ class TemplatePanel(QWidget):
         if not self._loading:
             self._emit_applied()
 
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt override
+        """Report which field has the keyboard, so the drawing can highlight its dimension."""
+        key = watched.property("param_key") if isinstance(watched, QObject) else None
+        if key:
+            if event.type() == QEvent.Type.FocusIn:
+                self.parameterFocused.emit(str(key), self.params()[str(key)])
+            elif event.type() == QEvent.Type.FocusOut:
+                self.parameterFocused.emit("", 0.0)
+        return super().eventFilter(watched, event)
+
+    def focus_parameter(self, key: str) -> bool:
+        """Move the keyboard to one field, the way a click would."""
+        spin = self._spins.get(key)
+        if spin is None:
+            return False
+        spin.setFocus()
+        spin.selectAll()
+        self.parameterFocused.emit(key, self.params()[key])
+        return True
+
     def _schedule_apply(self) -> None:
-        if not self._loading:
-            self._timer.start()
+        if self._loading:
+            return
+        spin = self.sender()
+        if isinstance(spin, QDoubleSpinBox) and spin.hasFocus():
+            key = str(spin.property("param_key") or "")
+            if key:
+                self.parameterFocused.emit(key, self.params()[key])
+        self._timer.start()
 
     def _emit_applied(self) -> None:
         self.applied.emit(self.kind(), self.params())

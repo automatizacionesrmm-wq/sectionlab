@@ -275,10 +275,17 @@ class CanvasView(QGraphicsView):
     def value_highlight(self) -> tuple[float, str] | None:
         return self._value_highlight
 
-    def set_section(self, section: Section, *, record: bool = False, fit: bool = True) -> None:
-        """Replace the drawing, optionally as an undoable edit."""
+    def set_section(
+        self,
+        section: Section,
+        *,
+        record: bool = False,
+        fit: bool = True,
+        text: str = "section",
+    ) -> None:
+        """Replace the drawing, optionally as an undoable edit with its own undo label."""
         if record:
-            self._commit(section, "section")
+            self._commit(section, text)
         else:
             self._undo.clear()
             self._apply_section(section)

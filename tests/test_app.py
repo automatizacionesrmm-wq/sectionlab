@@ -398,3 +398,63 @@ def test_a_dimension_edit_invalidates_the_previous_results(window: MainWindow) -
     assert window.canvas.apply_dimension_length(0, 150.0) is True
     assert window.properties() is None
     assert window.canvas.section().outer.points[1] == Point(150, 0)
+
+
+# -------------------------------------- template sections become free geometry (spec S10)
+
+
+def test_a_template_section_can_become_editable_geometry(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value) is True
+    before = window.section().outer.points
+    assert window.canvas.is_editable() is False
+
+    assert window.convert_to_free_geometry() is True
+    assert window.section().template is None
+    assert window.section().outer.points == before
+    assert window.canvas.is_editable() is True
+    # The vertex table accepts edits and the dimensions become editable in place.
+    assert window.vertex_table.isEnabled() is True
+    assert window.canvas.apply_dimension_length(0, 150.0) is True
+    assert window.section().outer.points[1] == Point(150, 0)
+
+
+def test_converting_a_template_is_one_undo_step(window: MainWindow) -> None:
+    window.apply_template(TemplateKind.RECTANGLE.value)
+    window.convert_to_free_geometry()
+    assert window.canvas.undo_stack().undoText() == strings.label_for("undo_convert")
+    window.canvas.undo_stack().undo()
+    assert window.section().template is not None
+    # Undo crosses back into template mode: the vertices lock again and the panel returns.
+    assert window.canvas.is_editable() is False
+    assert window.template_mode() is True
+    window.canvas.undo_stack().redo()
+    assert window.canvas.is_editable() is True
+    assert window.template_mode() is False
+
+
+def test_the_template_inspector_leaves_with_the_template(window: MainWindow) -> None:
+    dock = window._dock_by_name["template"]
+    assert not dock.isHidden()
+    window.apply_template(TemplateKind.RECTANGLE.value)
+    assert not dock.isHidden()
+    window.convert_to_free_geometry()
+    assert dock.isHidden()
+    assert dock.toggleViewAction().isEnabled() is False
+    # F9 still brings back the inspectors that apply, and only those.
+    window.set_panels_visible(True)
+    assert dock.isHidden()
+    assert window.all_panels_visible() is True
+
+
+def test_a_free_section_cannot_be_converted_again(window: MainWindow) -> None:
+    assert window.convert_to_free_geometry() is False
+
+
+def test_the_focused_template_parameter_names_its_dimension(window: MainWindow) -> None:
+    window.apply_template(TemplateKind.RECTANGLE.value)
+    assert window.template_panel.focus_parameter("b") is True
+    assert window.canvas.value_highlight() is not None
+    _, name = window.canvas.value_highlight()
+    assert name == strings.label_for("b")
+    window.template_panel.focus_parameter("h")
+    assert window.canvas.value_highlight()[1] == strings.label_for("h")

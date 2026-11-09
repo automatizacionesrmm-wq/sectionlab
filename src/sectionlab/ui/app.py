@@ -80,9 +80,11 @@ class MainWindow(QMainWindow):
         self._path: Path | None = None
         self._last_error: str | None = None
         self._template_kind: str | None = None
+        self._template_mode = True
         self._icon_targets: list[tuple[QAction, str]] = []
         self._glyphs: list[tuple[QLabel, str]] = []
         self._docks: list[QDockWidget] = []
+        self._dock_by_name: dict[str, QDockWidget] = {}
         self._panel_actions: list[QAction] = []
         self._dock_closers: list[QToolButton] = []
 
@@ -120,10 +122,14 @@ class MainWindow(QMainWindow):
         self.canvas.editRejected.connect(self._on_dimension_rejected)
         self.template_panel.applied.connect(self.apply_template)
         self.template_panel.freeModeRequested.connect(self.start_free_geometry)
+        self.template_panel.convertRequested.connect(self.convert_to_free_geometry)
+        self.template_panel.parameterFocused.connect(self._on_parameter_focused)
         self.vertex_table.vertexEdited.connect(self.canvas.move_vertex)
         self.vertex_table.vertexActivated.connect(self.canvas.select_vertex)
+        self.canvas.undo_stack().indexChanged.connect(self._on_undo_index_changed)
 
         self._sync_undo_actions()
+        self._sync_template_dock()
         self._refresh_displays()
         self._message_label.setText(strings.label_for("ready"))
 
@@ -173,6 +179,7 @@ class MainWindow(QMainWindow):
         # Qt keeps this checkable action in step with the dock, which is what lets the
         # Paneles submenu reopen one panel the user closed with its own close button.
         self._panel_actions.append(dock.toggleViewAction())
+        self._dock_by_name[name] = dock
         return dock
 
     def _panel_header(self, dock: QDockWidget, title: str, glyph: str) -> QWidget:
@@ -211,16 +218,40 @@ class MainWindow(QMainWindow):
         layout.addWidget(content)
         return frame
 
+    def _panel_docks(self) -> list[QDockWidget]:
+        """The inspectors that mean something right now: no template panel on free geometry."""
+        if self._template_mode:
+            return list(self._docks)
+        template = self._dock_by_name.get("template")
+        return [dock for dock in self._docks if dock is not template]
+
+    def panel_docks(self) -> list[QDockWidget]:
+        return self._panel_docks()
+
+    def template_mode(self) -> bool:
+        """True while a template drives the section, or while the document is still empty."""
+        return self._template_mode
+
+    def _sync_template_dock(self) -> None:
+        """Hide the template inspector once the section is free geometry (spec S8)."""
+        dock = self._dock_by_name.get("template")
+        if dock is None:
+            return
+        dock.toggleViewAction().setEnabled(self._template_mode)
+        if not self._template_mode:
+            dock.hide()
+        self._sync_panels_action()
+
     def panels_visible(self) -> bool:
         """True when at least one inspector is on screen."""
-        return any(not dock.isHidden() for dock in self._docks)
+        return any(not dock.isHidden() for dock in self._panel_docks())
 
     def all_panels_visible(self) -> bool:
-        return all(not dock.isHidden() for dock in self._docks)
+        return all(not dock.isHidden() for dock in self._panel_docks())
 
     def set_panels_visible(self, visible: bool) -> None:
         """Show or hide every inspector at once, leaving the drawing alone on screen."""
-        for dock in self._docks:
+        for dock in self._panel_docks():
             dock.setVisible(visible)
         if hasattr(self, "action_panels"):
             self.action_panels.blockSignals(True)
@@ -442,6 +473,34 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ interactions
 
+    def convert_to_free_geometry(self) -> bool:
+        """Keep the contour exactly as it is, drop the template and unlock its vertices.
+
+        A template section belongs to its parameters, so it cannot be nudged vertex by
+        vertex (spec S10). This is the door out: same drawing, now editable, one undo step.
+        """
+        section = self.canvas.section()
+        if section.template is None:
+            return False
+        self._template_kind = None
+        self._template_mode = False
+        self.canvas.set_editable(True)
+        self.canvas.set_section(
+            replace(section, template=None),
+            record=True,
+            text=strings.label_for("undo_convert"),
+        )
+        self._sync_template_dock()
+        self._set_message(strings.label_for("converted_free"))
+        return True
+
+    def _on_parameter_focused(self, key: str, millimetres: float) -> None:
+        """Point at the dimension whose value the template form is editing (spec S7)."""
+        if key:
+            self.canvas.set_value_highlight(millimetres, strings.label_for(key))
+        else:
+            self.canvas.set_value_highlight(None)
+
     def apply_template(self, kind: str, params: Mapping[str, float] | None = None) -> bool:
         """Build the chosen template in millimetres and show it read-only."""
         try:
@@ -456,10 +515,12 @@ class MainWindow(QMainWindow):
         if refit:
             self.canvas.fit_to_content()
         self._template_kind = kind
+        self._template_mode = True
         self.template_panel.set_kind(kind)
         self._path = None
         self._set_message(f"{strings.label_for("applied")}: {strings.label_for(kind)}")
         self._last_error = None
+        self._sync_template_dock()
         return True
 
     def start_free_geometry(self) -> None:
@@ -469,8 +530,10 @@ class MainWindow(QMainWindow):
         self.canvas.reset_view()
         self.canvas.begin_drawing()
         self._template_kind = None
+        self._template_mode = False
         self._path = None
         self._props = None
+        self._sync_template_dock()
         self._set_message(strings.label_for("free_started"))
 
     def insert_vertex(self) -> None:
@@ -556,6 +619,8 @@ class MainWindow(QMainWindow):
         self._unit = unit
         self.canvas.set_section(section)
         self.canvas.set_editable(section.template is None)
+        self._template_mode = section.template is not None or not section.outer.points
+        self._sync_template_dock()
         self.canvas.fit_to_content()
         if section.template is not None:
             self.template_panel.set_kind(section.template.kind)
@@ -656,6 +721,22 @@ class MainWindow(QMainWindow):
     def _on_vertex_selected(self, contour: str, index: int) -> None:
         if contour:
             self.vertex_table.select_vertex(contour, index)
+        self._sync_undo_actions()
+
+    def _on_undo_index_changed(self) -> None:
+        """Undo and redo may cross the line between a template and free geometry."""
+        section = self.canvas.section()
+        template = section.template
+        self.canvas.set_editable(template is None)
+        was_template_mode = self._template_mode
+        self._template_mode = template is not None or not section.outer.points
+        self._template_kind = template.kind if template is not None else None
+        if self._template_mode != was_template_mode:
+            self._sync_template_dock()
+        if template is not None:
+            self.template_panel.set_kind(template.kind)
+            self.template_panel.set_params(template.params)
+        self.canvas.set_value_highlight(None)
         self._sync_undo_actions()
 
     def _on_dimension_rejected(self, code: str) -> None:
