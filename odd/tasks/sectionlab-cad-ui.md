@@ -102,3 +102,7 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   `test_the_context_button_closes_the_contour`,
   `test_the_context_button_cancels_a_short_polyline`,
   `test_the_first_vertex_is_highlighted_as_the_closing_target`.
+- **L12** Clicking the starting point must never leave a duplicate vertex behind, because that
+  is what the old build did and it produced «Hay vértices en la misma posición». `add_vertex`
+  now closes the polyline when the appended point coincides with the first one and there are
+  three or more vertices; anything else is appended as before.

@@ -221,8 +221,21 @@ class CanvasView(QGraphicsView):
         self.drawingChanged.emit(True)
 
     def add_vertex(self, x: float, y: float, contour: str = OUTER, index: int | None = None) -> None:
-        """Insert a vertex, appending when `index` is `None`."""
+        """Insert a vertex, appending when `index` is `None`.
+
+        Appending a point that coincides with the first one closes the polyline instead of
+        leaving a duplicate: that is what clicking the starting point means.
+        """
         target = self._contour(contour)
+        if (
+            index is None
+            and contour == OUTER
+            and self._drawing
+            and len(target.points) >= 3
+            and Point(float(x), float(y)) == target.points[0]
+        ):
+            self.close_contour()
+            return
         points = list(target.points)
         position = len(points) if index is None else index
         position = max(0, min(position, len(points)))

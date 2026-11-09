@@ -484,3 +484,26 @@ def test_the_context_button_cancels_a_short_polyline(canvas: CanvasView) -> None
     right_press(canvas)
     assert not canvas.is_drawing()
     assert canvas.section().outer.points == []
+
+
+def test_appending_the_first_point_closes_the_polyline(canvas: CanvasView) -> None:
+    canvas = drawing_canvas(canvas)
+    canvas.add_vertex(0.0, 0.0)
+    assert not canvas.is_drawing()
+    assert canvas.section().outer.closed
+    assert len(canvas.section().outer.points) == 4
+
+
+def test_a_point_next_to_the_first_one_is_still_appended(canvas: CanvasView) -> None:
+    canvas = drawing_canvas(canvas)
+    canvas.add_vertex(0.0, 5.0)
+    assert canvas.is_drawing()
+    assert len(canvas.section().outer.points) == 5
+
+
+def test_two_points_cannot_close_into_a_contour(canvas: CanvasView) -> None:
+    canvas.begin_drawing()
+    canvas.add_vertex(0.0, 0.0)
+    canvas.add_vertex(100.0, 0.0)
+    canvas.add_vertex(0.0, 0.0)
+    assert canvas.is_drawing()
