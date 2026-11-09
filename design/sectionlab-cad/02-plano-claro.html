@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>SectionLab · Dirección B — Plano técnico claro</title>
+<style>
+  :root{
+    --paper:#ffffff; --paper-2:#f6f8fb; --paper-3:#eef2f7;
+    --ink:#0f172a; --ink-2:#475569; --ink-3:#7c8899;
+    --rule:#d8e0ea; --rule-soft:#e8eef6;
+    --blue:#1d6ff2; --blue-ink:#0b4bb3; --blue-soft:#e8f1ff;
+    --canvas:#fcfdfe; --grid:#e9eff7; --grid-major:#d5e0ee;
+    --orange:#c2410c; --green:#15803d;
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#dfe5ee;font-family:var(--sans);color:var(--ink);display:flex;justify-content:center;padding:18px}
+  .app{width:1440px;height:900px;background:var(--paper);border:1px solid #c3cedd;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 50px #0f172a1f}
+
+  header{display:flex;align-items:center;gap:18px;padding:0 16px;height:52px;border-bottom:1px solid var(--rule);background:var(--paper)}
+  .logo{display:flex;align-items:center;gap:9px}
+  .logo svg{width:20px;height:20px}
+  .logo b{font-size:14px;letter-spacing:-.2px}
+  nav{display:flex;gap:2px;margin-left:6px}
+  nav a{font-size:12.5px;color:var(--ink-2);text-decoration:none;padding:6px 9px;border-radius:5px}
+  nav a:hover{background:var(--paper-3);color:var(--ink)}
+  .docchip{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+  .docchip .path{background:var(--paper-3);border:1px solid var(--rule);padding:3px 8px;border-radius:4px;color:var(--ink-2)}
+
+  .ribbon{display:flex;align-items:stretch;gap:0;border-bottom:1px solid var(--rule);background:linear-gradient(#fff,#f7f9fc)}
+  .rgroup{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-right:1px solid var(--rule-soft)}
+  .rgroup .row{display:flex;gap:4px;align-items:center}
+  .rgroup .cap{font-size:9px;letter-spacing:.9px;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .lbtn{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:52px;padding:5px 7px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ink-2);font-size:10.5px;cursor:pointer;font-family:var(--sans)}
+  .lbtn:hover{background:var(--blue-soft);border-color:#c7ddff;color:var(--blue-ink)}
+  .lbtn:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+  .lbtn svg{width:20px;height:20px}
+  .lbtn.on{background:var(--blue-soft);border-color:#a9ccff;color:var(--blue-ink)}
+  .ibtn{width:28px;height:28px;display:grid;place-items:center;border-radius:5px;border:1px solid transparent;background:transparent;color:var(--ink-2);cursor:pointer}
+  .ibtn:hover{background:var(--paper-3);color:var(--ink)}
+  .ibtn svg{width:17px;height:17px}
+  .calc{margin-left:auto;padding:8px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+  .calc button{display:flex;align-items:center;gap:9px;padding:9px 18px;border-radius:7px;border:1px solid var(--blue-ink);background:linear-gradient(#2a7bff,#1a63dd);color:#fff;font-size:13.5px;font-weight:650;cursor:pointer;box-shadow:0 1px 2px #0f172a26,inset 0 1px 0 #ffffff33}
+  .calc button:hover{background:linear-gradient(#3d88ff,#2069e4)}
+  .calc button svg{width:18px;height:18px}
+  .calc span{font-size:9px;color:var(--ink-3);font-family:var(--mono)}
+
+  .main{flex:1;display:flex;min-height:0}
+  aside{width:300px;border-right:1px solid var(--rule);background:var(--paper-2);display:flex;flex-direction:column;overflow:auto}
+  .sect{border-bottom:1px solid var(--rule)}
+  .sect > h2{display:flex;align-items:center;gap:8px;padding:9px 12px;font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--ink-2);font-weight:650;background:var(--paper-3);cursor:pointer}
+  .sect > h2 svg{width:13px;height:13px;color:var(--blue)}
+  .sect > h2 .chev{margin-left:auto;color:var(--ink-3)}
+  .sect .in{padding:11px 12px}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--rule);background:#fff;color:var(--ink-2);cursor:pointer}
+  .chip.sel{background:var(--blue-soft);border-color:#a9ccff;color:var(--blue-ink);font-weight:600}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .fld{display:flex;flex-direction:column;gap:4px}
+  .fld label{font-size:10.5px;color:var(--ink-3)}
+  .fld .box{display:flex;align-items:baseline;justify-content:space-between;background:#fff;border:1px solid var(--rule);border-radius:5px;padding:5px 8px;font-family:var(--mono);font-size:12.5px}
+  .fld .box small{color:var(--ink-3);font-size:10px}
+  .fld .box.hot{border-color:#8fbaff;box-shadow:0 0 0 3px #1d6ff21a}
+  .apply{width:100%;margin-top:10px;padding:8px;border-radius:6px;border:1px solid var(--blue-ink);background:var(--blue);color:#fff;font-size:12.5px;font-weight:600;cursor:pointer}
+  .apply:hover{background:var(--blue-ink)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px;background:#fff}
+  th{text-align:right;font-size:9px;letter-spacing:.7px;text-transform:uppercase;color:var(--ink-3);padding:6px 9px;border-bottom:1px solid var(--rule);background:var(--paper-3)}
+  th:first-child{text-align:left}
+  td{padding:4px 9px;border-bottom:1px solid var(--rule-soft);font-family:var(--mono);font-size:11.5px;text-align:right}
+  td:first-child{text-align:left;font-family:var(--sans);font-size:11.5px;color:var(--ink-2)}
+  tr.pick td{background:var(--blue-soft);color:var(--blue-ink)}
+  tbody tr:hover td{background:#f3f8ff}
+
+  .sheet{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--canvas)}
+  .sheet .frame{flex:1;position:relative;overflow:hidden}
+  .sheet svg{display:block;width:100%;height:100%}
+  .ticket{position:absolute;right:16px;bottom:16px;background:#fff;border:1px solid var(--rule);border-radius:6px;padding:9px 12px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);box-shadow:0 4px 14px #0f172a14;line-height:1.55}
+  .ticket b{color:var(--ink);font-weight:650}
+  .ticket .t{font-family:var(--sans);font-size:9.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:4px}
+  .snaptag{position:absolute;border:1px solid var(--green);background:#f0fdf4;color:var(--green);font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:4px}
+
+  .resultsbar{border-top:1px solid var(--rule);background:#fff}
+  .resultsbar header{height:34px;padding:0 12px;border-bottom:1px solid var(--rule-soft);display:flex;align-items:center;gap:10px;background:var(--paper-3)}
+  .resultsbar header b{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--ink-2)}
+  .resultsbar header .unit{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .resultsbar header .sp{margin-left:auto;display:flex;gap:6px}
+  .resultsbar header button{font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid var(--rule);background:#fff;color:var(--ink-2);cursor:pointer}
+  .resultsbar header button:hover{background:var(--blue-soft);border-color:#b7d4ff;color:var(--blue-ink)}
+  .rgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+  .rgrid .cell{padding:7px 12px;border-right:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft)}
+  .rgrid .cell span{display:block;font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-3)}
+  .rgrid .cell b{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink)}
+  .rgrid .cell.hi b{color:var(--blue-ink)}
+  .rgrid .cell u{text-decoration:none;font-size:10px;color:var(--ink-3);margin-left:2px}
+
+  .status{height:26px;display:flex;align-items:center;gap:0;background:var(--paper-3);border-top:1px solid var(--rule);font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+  .status .c{padding:0 11px;height:100%;display:flex;align-items:center;gap:6px;border-right:1px solid var(--rule)}
+  .status .ok{margin-left:auto;border:0;color:var(--green);padding-right:12px}
+</style>
+</head>
+<body>
+<div class="app" role="application" aria-label="SectionLab, plano técnico claro">
+
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#1d6ff2" stroke-width="1.8" stroke-linejoin="round"><path d="M4 3h16v6H4zM7 9h3v12H7zM14 9h3v12h-3z"/><path d="M9 3v6M15 3v6M4 21h16"/></svg>
+      <b>SectionLab</b>
+    </div>
+    <nav><a href="#">Archivo</a><a href="#">Edición</a><a href="#">Ver</a><a href="#">Geometría</a><a href="#">Configuración</a><a href="#">Ayuda</a></nav>
+    <div class="docchip"><span class="path">perfil-i-200.sectionlab</span><span>guardado 10:42</span></div>
+  </header>
+
+  <!-- ribbon -->
+  <div class="ribbon">
+    <div class="rgroup">
+      <div class="cap">Archivo</div>
+      <div class="row">
+        <button class="lbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>Nuevo</button>
+        <button class="lbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1H6l-3 7z"/><path d="M3 17l3-7h16l-3 7a2 2 0 0 1-2 1H5a2 2 0 0 1-2-2z"/></svg>Abrir</button>
+        <button class="lbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7V3M8 21v-6h8v6"/></svg>Guardar</button>
+      </div>
+    </div>
+    <div class="rgroup">
+      <div class="cap">Dibujo</div>
+      <div class="row">
+        <button class="lbtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18l4-10 5 6 7-9"/><circle cx="4" cy="18" r="1.6" fill="currentColor"/><circle cx="20" cy="5" r="1.6" fill="currentColor"/></svg>Contorno</button>
+        <button class="lbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20L20 4"/><circle cx="12" cy="12" r="2.3" fill="currentColor" stroke="none"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg>Insertar</button>
+        <button class="lbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20L20 4"/><circle cx="12" cy="12" r="2.3"/><path d="M9 9l6 6M15 9l-6 6"/></svg>Eliminar</button>
+      </div>
+    </div>
+    <div class="rgroup">
+      <div class="cap">Precisión</div>
+      <div class="row">
+        <button class="lbtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 4v16h16"/><path d="M5 12h7v8"/></svg>Ortogonal<small style="font-family:var(--mono);color:var(--ink-3)">F8</small></button>
+        <button class="lbtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/></svg>Snap</button>
+        <button class="lbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4h16v16H4zM4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16"/></svg>Rejilla</button>
+      </div>
+    </div>
+    <div class="rgroup">
+      <div class="cap">Vista</div>
+      <div class="row">
+        <button class="ibtn" title="Acercar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M11 8.5v5M8.5 11h5"/></svg></button>
+        <button class="ibtn" title="Alejar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M8.5 11h5"/></svg></button>
+        <button class="ibtn" title="Ajustar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+        <button class="ibtn" title="Deshacer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M8 5L4 9l4 4"/></svg></button>
+      </div>
+    </div>
+    <div class="calc">
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M8 12.2l2.8 2.8L16 9"/></svg> Calcular propiedades</button>
+      <span>Ctrl + Enter</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- left panel -->
+    <aside aria-label="Entrada de geometría">
+      <div class="sect">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 3h16v5H4zM9 8v13M4 8h5M15 8h5M4 21h5M15 21h5"/></svg> Plantilla <span class="chev">▾</span></h2>
+        <div class="in">
+          <div class="chips">
+            <span class="chip">Rectángulo</span><span class="chip">Rect. hueco</span><span class="chip">Círculo</span>
+            <span class="chip sel">Perfil I</span><span class="chip">Perfil H</span><span class="chip">Canal U</span>
+            <span class="chip">Ángulo L</span><span class="chip">Perfil T</span><span class="chip">Tubo</span>
+            <span class="chip">Triángulo</span><span class="chip">Polígono</span>
+          </div>
+          <div class="row2" style="margin-top:11px">
+            <div class="fld"><label>Alto h</label><div class="box">200.000<small>mm</small></div></div>
+            <div class="fld"><label>Ancho b</label><div class="box">100.000<small>mm</small></div></div>
+            <div class="fld"><label>Alma tw</label><div class="box">6.000<small>mm</small></div></div>
+            <div class="fld"><label>Ala tf</label><div class="box hot">10.000<small>mm</small></div></div>
+          </div>
+          <button class="apply">Aplicar plantilla</button>
+        </div>
+      </div>
+
+      <div class="sect">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16M4 20V4"/><circle cx="8" cy="15" r="1.6"/><circle cx="14" cy="9" r="1.6"/><circle cx="19" cy="13" r="1.6"/></svg> Vértices <span class="chev" style="text-transform:none;letter-spacing:0;font-weight:500">12 puntos</span></h2>
+        <table>
+          <thead><tr><th>Contorno</th><th>N°</th><th>X</th><th>Y</th></tr></thead>
+          <tbody>
+            <tr><td>Exterior</td><td>1</td><td>−50.00</td><td>0.00</td></tr>
+            <tr><td>Exterior</td><td>2</td><td>50.00</td><td>0.00</td></tr>
+            <tr class="pick"><td>Exterior</td><td>3</td><td>50.00</td><td>10.00</td></tr>
+            <tr><td>Exterior</td><td>4</td><td>3.00</td><td>10.00</td></tr>
+            <tr><td>Exterior</td><td>5</td><td>3.00</td><td>190.00</td></tr>
+            <tr><td>Exterior</td><td>6</td><td>50.00</td><td>190.00</td></tr>
+            <tr><td>Exterior</td><td>7</td><td>50.00</td><td>200.00</td></tr>
+            <tr><td>Exterior</td><td>8</td><td>−50.00</td><td>200.00</td></tr>
+            <tr><td>Exterior</td><td>9</td><td>−50.00</td><td>190.00</td></tr>
+            <tr><td>Exterior</td><td>10</td><td>−3.00</td><td>190.00</td></tr>
+            <tr><td>Exterior</td><td>11</td><td>−3.00</td><td>10.00</td></tr>
+            <tr><td>Exterior</td><td>12</td><td>−50.00</td><td>10.00</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </aside>
+
+    <!-- drawing sheet -->
+    <div class="sheet">
+      <div class="frame">
+        <svg viewBox="0 0 880 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sección I de 200 por 100 milímetros dibujada sobre hoja milimetrada">
+          <defs>
+            <pattern id="g1" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#e9eff7" stroke-width="1"/></pattern>
+            <pattern id="g2" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#d5e0ee" stroke-width="1"/></pattern>
+            <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="6" stroke="#1d6ff2" stroke-opacity=".28" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="880" height="520" fill="#fcfdfe"/>
+          <rect width="880" height="520" fill="url(#g1)"/>
+          <rect width="880" height="520" fill="url(#g2)"/>
+
+          <g transform="translate(440 470) scale(2.1 -2.1)">
+            <line x1="-160" y1="0" x2="160" y2="0" stroke="#94a3b8" stroke-width=".8" vector-effect="non-scaling-stroke"/>
+            <line x1="0" y1="-10" x2="0" y2="225" stroke="#94a3b8" stroke-width=".8" vector-effect="non-scaling-stroke"/>
+            <path d="M-50 0H50V10H3V190H50V200H-50V190H-3V10H-50Z" fill="url(#hatch)" stroke="#0b4bb3" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+            <line x1="-75" y1="100" x2="75" y2="100" stroke="#c2410c" stroke-width=".9" stroke-dasharray="7 3" vector-effect="non-scaling-stroke"/>
+            <line x1="0" y1="86" x2="0" y2="214" stroke="#c2410c" stroke-width=".9" stroke-dasharray="7 3" vector-effect="non-scaling-stroke"/>
+          </g>
+
+          <!-- handles -->
+          <g fill="#fff" stroke="#0b4bb3" stroke-width="1.6">
+            <rect x="331.5" y="466.5" width="7" height="7"/><rect x="541.5" y="466.5" width="7" height="7"/>
+            <rect x="541.5" y="445.5" width="7" height="7"/><rect x="442.5" y="445.5" width="7" height="7"/>
+            <rect x="442.5" y="60.5" width="7" height="7"/><rect x="541.5" y="60.5" width="7" height="7"/>
+            <rect x="541.5" y="39.5" width="7" height="7"/><rect x="331.5" y="39.5" width="7" height="7"/>
+            <rect x="331.5" y="60.5" width="7" height="7"/><rect x="433.5" y="60.5" width="7" height="7"/>
+            <rect x="433.5" y="445.5" width="7" height="7"/><rect x="331.5" y="445.5" width="7" height="7"/>
+          </g>
+          <!-- selected vertex -->
+          <rect x="437" y="440" width="16" height="16" fill="none" stroke="#c2410c" stroke-width="1.6"/>
+          <text x="456" y="436" font-family="ui-monospace,monospace" font-size="10.5" fill="#c2410c">(50.00, 10.00)</text>
+
+          <!-- snap -->
+          <path d="M446 24l6 6-6 6-6-6z" fill="#dcfce7" stroke="#15803d" stroke-width="1.6"/>
+          <rect class="snaptag" x="0" y="0" width="0" height="0" style="display:none"/>
+          <g font-family="ui-monospace,monospace" font-size="10.5">
+            <rect x="458" y="20" width="116" height="19" rx="3" fill="#f0fdf4" stroke="#15803d"/>
+            <text x="466" y="33" fill="#15803d">Punto medio · snap</text>
+          </g>
+
+          <!-- dimensions -->
+          <g stroke="#64748b" stroke-width="1" fill="none">
+            <path d="M331 30h210"/><path d="M331 24v12M541 24v12"/><path d="M331 30l8-4M331 30l8 4M541 30l-8-4M541 30l-8 4"/>
+            <path d="M570 40v407"/><path d="M564 40h12M564 447h12"/><path d="M570 40l-4 8M570 40l4 8M570 447l-4-8M570 447l4-8"/>
+          </g>
+          <text x="436" y="24" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#475569">100.00</text>
+          <text x="590" y="248" font-family="ui-monospace,monospace" font-size="11" fill="#475569">200.00</text>
+
+          <!-- centroid callout -->
+          <circle cx="440" cy="260" r="5" fill="none" stroke="#c2410c" stroke-width="1.5"/>
+          <path d="M440 250v20M430 260h20" stroke="#c2410c" stroke-width="1.3"/>
+          <g font-family="ui-monospace,monospace" font-size="10.5" fill="#c2410c">
+            <path d="M447 253l22-18" stroke="#c2410c" stroke-dasharray="3 3"/>
+            <text x="473" y="232">C (0.00, 100.00)</text>
+          </g>
+        </svg>
+
+        <div class="ticket">
+          <span class="t">Escala</span>
+          <b>2.10 px/mm</b> · hoja 1:1<br>
+          rejilla 10 mm · mayor 50 mm
+        </div>
+      </div>
+
+      <!-- results strip -->
+      <section class="resultsbar" aria-label="Resultados">
+        <header>
+          <b>Resultados centroidales</b>
+          <span class="unit">unidad mm · 4 decimales</span>
+          <div class="sp"><button>Copiar</button><button>CSV</button><button>Acerca de los ejes</button></div>
+        </header>
+        <div class="rgrid">
+          <div class="cell"><span>Área</span><b>3 080.0000 <u>mm²</u></b></div>
+          <div class="cell"><span>Perímetro</span><b>788.0000 <u>mm</u></b></div>
+          <div class="cell"><span>Centroide</span><b>0.0000, 100.0000</b></div>
+          <div class="cell"><span>Caja</span><b>100 × 200 <u>mm</u></b></div>
+          <div class="cell hi"><span>Inercia Ix</span><b>20 982 666.6667 <u>mm⁴</u></b></div>
+          <div class="cell"><span>Inercia Iy</span><b>1 669 906.6667 <u>mm⁴</u></b></div>
+          <div class="cell"><span>Producto Ixy</span><b>0.0000 <u>mm⁴</u></b></div>
+          <div class="cell"><span>Ángulo principal</span><b>0.00 <u>°</u></b></div>
+          <div class="cell"><span>Principal I1</span><b>20 982 666.6667 <u>mm⁴</u></b></div>
+          <div class="cell"><span>Principal I2</span><b>1 669 906.6667 <u>mm⁴</u></b></div>
+          <div class="cell"><span>Radio r1 / r2</span><b>82.5380 / 23.2846</b></div>
+          <div class="cell"><span>Módulo Sx</span><b>209 826.6667 <u>mm³</u></b></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="c">X 50.00 &nbsp; Y 10.00</div>
+    <div class="c">origen (0, 0)</div>
+    <div class="c">mm</div>
+    <div class="c">ORTO · SNAP · REJILLA</div>
+    <div class="c">Punto medio del ala superior</div>
+    <div class="c ok">✓ Resultados actualizados</div>
+  </div>
+</div>
+</body>
+</html>

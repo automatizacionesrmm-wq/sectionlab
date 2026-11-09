@@ -22,6 +22,10 @@ truth for scope, behavior and conventions.
   self-intersection, duplicate points or zero area.
 - Projects saved as `.sectionlab` JSON (schema-versioned); results copied to clipboard or
   exported as full-precision CSV.
+- Interface: dark and light drafting themes sharing one colour-token table, an icon toolbar
+  with a primary **Calcular** button, and a canvas that draws a grid with labelled axes, a
+  live crosshair, contour fill and vertex handles. Icons are drawn in code, so they recolour
+  with the theme and stay sharp on high-density screens.
 - UI in Spanish; code, comments, commits and internal docs in English.
 
 ## Deferred to v2
@@ -34,17 +38,20 @@ PDF/PNG reports, **DXF import/export**.
 
 ## Usage
 
-1. Pick a template on the right, type its parameters in the active unit and press
-   **Aplicar**, or press **Nueva geometría libre** and draw with the mouse: click to add a vertex,
-   `Enter` to close the contour, `Esc` to cancel. `F8` toggles ortho mode; snaps appear for
-   endpoints, intersections, midpoints, centres and perpendicular feet.
+1. Pick a template on the right and type its parameters in the active unit: the section is
+   drawn as soon as the template or a parameter changes, so **Aplicar** is only a convenience.
+   Or press **Nueva geometría libre** and draw with the mouse: click to add a vertex, click the
+   first vertex or press `Enter` to close the contour, `Esc` to cancel. `F8` toggles ortho mode;
+   snaps appear for endpoints, intersections, midpoints, centres and perpendicular feet.
 2. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
    Spanish and name the offending geometry; saving an invalid drawing is still allowed.
 3. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
    edits are undoable with `Ctrl+Z`.
 4. **Configuración → Preferencias** changes the active unit and the displayed decimals.
    Changing the unit only converts the display; the geometry is never recomputed.
-5. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
+5. **Ver → Tema** (`Ctrl+Shift+T`) switches between the dark and light themes; the choice is
+   remembered in the saved preferences.
+6. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
    precision (`repr`), independent of the visible decimals.
 
 ## Stack

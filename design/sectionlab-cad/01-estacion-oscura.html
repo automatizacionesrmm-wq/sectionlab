@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>SectionLab · Dirección A — Estación CAD oscura</title>
+<style>
+  :root{
+    --chrome:#12151b; --chrome-2:#171b22; --chrome-3:#1d222b;
+    --line:#262c37; --line-soft:#1f242d;
+    --canvas:#0c0f14; --grid:#151a22; --grid-major:#1f2733;
+    --text:#e6ebf2; --text-dim:#9aa5b4; --text-faint:#65707f;
+    --accent:#39d0ff; --accent-dim:#1b7fa0; --warn:#ffb648; --ok:#4ade80;
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05070a;font-family:var(--sans);color:var(--text);display:flex;justify-content:center;padding:18px}
+  .app{width:1440px;height:900px;background:var(--chrome);border:1px solid #2a313d;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px #0008}
+
+  /* ---------- menu bar ---------- */
+  .menubar{height:32px;display:flex;align-items:center;gap:2px;padding:0 8px;background:var(--chrome-2);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:8px;padding-right:14px;margin-right:6px;border-right:1px solid var(--line)}
+  .brand svg{width:18px;height:18px}
+  .brand b{font-size:13px;letter-spacing:.3px}
+  .brand span{font-size:10px;color:var(--text-faint);font-family:var(--mono)}
+  .menu{font-size:12px;color:var(--text-dim);padding:5px 10px;border-radius:4px}
+  .menu:hover{background:var(--chrome-3);color:var(--text)}
+  .doc-title{margin-left:auto;font-size:11px;color:var(--text-faint);font-family:var(--mono)}
+
+  /* ---------- toolbars ---------- */
+  .toolbar{height:46px;display:flex;align-items:center;gap:6px;padding:0 10px;background:linear-gradient(var(--chrome-3),var(--chrome-2));border-bottom:1px solid var(--line)}
+  .group{display:flex;align-items:center;gap:2px}
+  .sep{width:1px;height:26px;background:var(--line);margin:0 6px}
+  .tbtn{width:34px;height:34px;display:grid;place-items:center;border-radius:6px;border:1px solid transparent;color:var(--text-dim);background:transparent;cursor:pointer}
+  .tbtn:hover{background:#232a35;color:var(--text);border-color:#303845}
+  .tbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .tbtn svg{width:19px;height:19px}
+  .tbtn.on{background:#0e3b4c;color:var(--accent);border-color:#1d6b86}
+  .cta{display:flex;align-items:center;gap:8px;height:34px;padding:0 16px 0 12px;border-radius:6px;border:1px solid #1d6b86;background:linear-gradient(#12455a,#0d3345);color:#d9f6ff;font-weight:600;font-size:12.5px;cursor:pointer}
+  .cta:hover{background:linear-gradient(#17607c,#0f415a)}
+  .cta svg{width:17px;height:17px}
+  .cta kbd{font-family:var(--mono);font-size:10px;color:#8fd6ee;border:1px solid #2b7f9c;border-radius:3px;padding:0 4px}
+
+  /* ---------- work area ---------- */
+  .work{flex:1;display:flex;min-height:0}
+  .rail{width:46px;background:var(--chrome-2);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0}
+  .rail .tbtn{width:34px;height:34px}
+  .rail .sep{width:26px;height:1px;margin:6px 0}
+
+  .viewport{flex:1;position:relative;background:var(--canvas);min-width:0}
+  .viewport svg{display:block;width:100%;height:100%}
+
+  /* floating view controls */
+  .viewctl{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:1px;background:#12161dcc;border:1px solid var(--line);border-radius:6px;overflow:hidden;backdrop-filter:blur(4px)}
+  .viewctl button{width:30px;height:28px;background:transparent;border:0;color:var(--text-dim);display:grid;place-items:center;cursor:pointer}
+  .viewctl button:hover{background:#222a35;color:var(--text)}
+  .viewctl svg{width:15px;height:15px}
+  .scalebar{position:absolute;left:16px;bottom:14px;font-family:var(--mono);font-size:10px;color:var(--text-faint);display:flex;align-items:center;gap:8px}
+  .scalebar i{display:block;width:64px;height:1px;background:var(--text-faint);position:relative}
+  .scalebar i::before,.scalebar i::after{content:"";position:absolute;width:1px;height:6px;background:var(--text-faint);top:-3px}
+  .scalebar i::after{right:0}
+  .hint{position:absolute;left:50%;top:20px;transform:translateX(-50%);font-size:11px;color:var(--text-faint);font-family:var(--mono);background:#0f1319cc;border:1px solid var(--line-soft);padding:5px 12px;border-radius:999px}
+
+  /* ---------- right dock ---------- */
+  .dock{width:352px;background:var(--chrome-2);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .tabs{display:flex;border-bottom:1px solid var(--line);background:var(--chrome)}
+  .tab{flex:1;padding:9px 0;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--text-faint);text-align:center;cursor:pointer;border-bottom:2px solid transparent}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);background:#12171e}
+  .pane{flex:1;overflow:auto;padding:12px 12px 16px;display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--chrome-3);border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .card h2{font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--text-faint);font-weight:600;padding:9px 11px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:7px}
+  .card h2 svg{width:13px;height:13px}
+  .card .body{padding:10px 11px}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:10.5px;color:var(--text-faint)}
+  .field .input{display:flex;align-items:center;justify-content:space-between;background:#0f1319;border:1px solid #2a313d;border-radius:5px;padding:5px 8px;font-family:var(--mono);font-size:12.5px}
+  .field .input small{color:var(--text-faint);font-size:10px}
+  .field .input.focus{border-color:var(--accent-dim);box-shadow:0 0 0 2px #39d0ff22}
+  .btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:8px;border-radius:6px;border:1px solid #2a313d;background:#1b212a;color:var(--text);font-size:12px;cursor:pointer;font-family:var(--sans)}
+  .btn:hover{background:#232a35}
+  .btn svg{width:15px;height:15px}
+  .btn.ghost{background:transparent;color:var(--text-dim)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--text-faint);text-align:right;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);background:#12161d}
+  th:first-child{text-align:left}
+  td{padding:4.5px 8px;border-bottom:1px solid #1b2029;font-family:var(--mono);font-size:11.5px;text-align:right;color:var(--text)}
+  td:first-child{text-align:left;font-family:var(--sans);font-size:11.5px;color:var(--text-dim)}
+  tr:hover td{background:#1a2029}
+  tr.sel td{background:#123443;color:#d8f5ff}
+  td u{text-decoration:none;color:var(--text-faint);font-size:10px;margin-left:3px}
+  .grouprow td{background:#101419;color:var(--text-faint);font-family:var(--sans);font-size:10px;letter-spacing:.8px;text-transform:uppercase;padding:5px 8px}
+  .num{align-self:flex-start}
+
+  /* ---------- status ---------- */
+  .status{height:28px;display:flex;align-items:center;gap:0;background:var(--chrome-3);border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  .status .cell{padding:0 12px;height:100%;display:flex;align-items:center;gap:6px;border-right:1px solid var(--line)}
+  .status .cell b{color:var(--text-dim);font-weight:500}
+  .status .grow{margin-left:auto;border:0;border-left:1px solid var(--line);color:var(--ok)}
+  .pill{font-size:9.5px;padding:1px 7px;border-radius:999px;border:1px solid #2a313d;letter-spacing:.5px}
+  .pill.on{background:#0e3b4c;border-color:#1d6b86;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="app" role="application" aria-label="SectionLab, estación CAD oscura">
+
+  <!-- ============ MENU ============ -->
+  <div class="menubar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#39d0ff" stroke-width="1.7" stroke-linejoin="round"><path d="M4 3h16v6H4zM7 9h3v12H7zM14 9h3v12h-3zM4 21h16v-0"/><path d="M9 3v6M15 3v6"/></svg>
+      <b>SectionLab</b><span>0.1.0</span>
+    </div>
+    <div class="menu">Archivo</div><div class="menu">Edición</div><div class="menu">Ver</div>
+    <div class="menu">Geometría</div><div class="menu">Configuración</div><div class="menu">Ayuda</div>
+    <div class="doc-title">perfil-i-200.sectionlab — sin cambios</div>
+  </div>
+
+  <!-- ============ TOOLBAR ============ -->
+  <div class="toolbar">
+    <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12l3 3 5-6"/></svg> Calcular <kbd>Ctrl+↵</kbd></button>
+    <div class="sep"></div>
+    <div class="group">
+      <button class="tbtn" title="Nuevo (Ctrl+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></button>
+      <button class="tbtn" title="Abrir (Ctrl+O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1H6l-3 7z"/><path d="M3 17l3-7h16l-3 7a2 2 0 0 1-2 1H5a2 2 0 0 1-2-2z"/></svg></button>
+      <button class="tbtn" title="Guardar (Ctrl+S)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7V3M8 21v-6h8v6"/></svg></button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button class="tbtn" title="Deshacer (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M8 5L4 9l4 4"/></svg></button>
+      <button class="tbtn" title="Rehacer (Ctrl+Y)" style="opacity:.4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h7"/><path d="M16 5l4 4-4 4"/></svg></button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button class="tbtn on" title="Dibujar contorno (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l5-14 11 3-4 12z"/><circle cx="4" cy="19" r="1.6" fill="currentColor"/></svg></button>
+      <button class="tbtn" title="Insertar vértice (Ins)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20L20 4"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg></button>
+      <button class="tbtn" title="Eliminar vértice (Supr)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20L20 4"/><circle cx="12" cy="12" r="2.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg></button>
+      <button class="tbtn on" title="Modo ortogonal (F8)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 4v16h16"/><path d="M5 12h7v8"/></svg></button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button class="tbtn" title="Acercar (Ctrl+)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M11 8.5v5M8.5 11h5"/></svg></button>
+      <button class="tbtn" title="Alejar (Ctrl−)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M8.5 11h5"/></svg></button>
+      <button class="tbtn" title="Ajustar a la vista (Ctrl+0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg></button>
+    </div>
+    <div class="sep"></div>
+    <button class="tbtn" title="Exportar CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 10l4 4 4-4"/><path d="M4 17v3h16v-3"/></svg></button>
+    <button class="tbtn" title="Preferencias"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></button>
+  </div>
+
+  <!-- ============ WORK ============ -->
+  <div class="work">
+    <!-- icon rail -->
+    <div class="rail">
+      <button class="tbtn on" title="Seleccionar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3l14 8-6 1.5L10 19z"/></svg></button>
+      <button class="tbtn" title="Polilínea"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18l4-10 5 6 7-9"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/><circle cx="20" cy="5" r="1.5" fill="currentColor"/></svg></button>
+      <button class="tbtn" title="Rectángulo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
+      <button class="tbtn" title="Plantillas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 3h16v5H4zM9 8v13M4 8h5M15 8h5"/><path d="M4 21h5M15 21h5"/></svg></button>
+      <div class="sep"></div>
+      <button class="tbtn" title="Cota"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 8v8M20 8v8M4 12h16"/><path d="M7 9l-3 3 3 3M17 9l3 3-3 3"/></svg></button>
+      <button class="tbtn" title="Medir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 15L15 3l6 6L9 21z"/><path d="M7 11l2 2M10 8l2 2M13 5l2 2"/></svg></button>
+      <div class="sep"></div>
+      <button class="tbtn" title="Rejilla"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4h16v16H4zM4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16"/></svg></button>
+      <button class="tbtn on" title="Snap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/></svg></button>
+    </div>
+
+    <!-- canvas -->
+    <div class="viewport">
+      <svg viewBox="0 0 900 760" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Perfil I de 200 por 100 milímetros con rejilla, ejes y marcador de snap">
+        <defs>
+          <pattern id="minor" width="15" height="15" patternUnits="userSpaceOnUse">
+            <path d="M15 0H0V15" fill="none" stroke="#151a22" stroke-width="1"/>
+          </pattern>
+          <pattern id="major" width="75" height="75" patternUnits="userSpaceOnUse">
+            <path d="M75 0H0V75" fill="none" stroke="#1f2733" stroke-width="1"/>
+          </pattern>
+          <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#39d0ff" stop-opacity=".26"/>
+            <stop offset="1" stop-color="#39d0ff" stop-opacity=".10"/>
+          </linearGradient>
+        </defs>
+        <rect width="900" height="760" fill="url(#minor)"/>
+        <rect width="900" height="760" fill="url(#major)"/>
+
+        <!-- model space: mm -> px, y flipped -->
+        <g transform="translate(450 640) scale(3 -3)">
+          <!-- axes -->
+          <line x1="-130" y1="0" x2="130" y2="0" stroke="#39434f" stroke-width="0.7" vector-effect="non-scaling-stroke"/>
+          <line x1="0" y1="-20" x2="0" y2="215" stroke="#39434f" stroke-width="0.7" vector-effect="non-scaling-stroke"/>
+          <!-- contour: I 200x100x6x10 -->
+          <path d="M-50 0H50V10H3V190H50V200H-50V190H-3V10H-50Z" fill="url(#steel)" stroke="#39d0ff" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+          <!-- centroidal axes -->
+          <line x1="-70" y1="100" x2="70" y2="100" stroke="#ffb648" stroke-width="0.8" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" opacity=".75"/>
+          <line x1="0" y1="88" x2="0" y2="212" stroke="#ffb648" stroke-width="0.8" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" opacity=".75"/>
+        </g>
+
+        <!-- vertex handles (screen space, fixed size) -->
+        <g fill="#0c0f14" stroke="#39d0ff" stroke-width="1.6">
+          <rect x="296" y="636" width="7" height="7" x="-3.5" y="-3.5" transform="translate(0 0)" style="display:none"/>
+        </g>
+        <g id="handles" fill="#0c0f14" stroke="#39d0ff" stroke-width="1.6">
+          <rect x="292.5" y="636.5" width="7" height="7"/><rect x="592.5" y="636.5" width="7" height="7"/>
+          <rect x="592.5" y="606.5" width="7" height="7"/><rect x="452.5" y="606.5" width="7" height="7"/>
+          <rect x="452.5" y="66.5" width="7" height="7"/><rect x="592.5" y="66.5" width="7" height="7"/>
+          <rect x="592.5" y="36.5" width="7" height="7"/><rect x="292.5" y="36.5" width="7" height="7"/>
+          <rect x="292.5" y="66.5" width="7" height="7"/><rect x="447.5" y="66.5" width="7" height="7"/>
+          <rect x="447.5" y="606.5" width="7" height="7"/><rect x="292.5" y="606.5" width="7" height="7"/>
+        </g>
+
+        <!-- centroid marker -->
+        <g stroke="#ffb648" stroke-width="1.5" fill="none">
+          <circle cx="450" cy="340" r="6"/><path d="M450 330v20M440 340h20"/>
+        </g>
+
+        <!-- snap marker: midpoint of top flange -->
+        <g stroke="#4ade80" stroke-width="1.7" fill="none">
+          <path d="M444 30l6 6-6 6-6-6z" fill="#4ade8044"/>
+          <circle cx="444" cy="36" r="12" stroke-opacity=".45"/>
+        </g>
+        <g font-family="ui-monospace,monospace" font-size="10.5">
+          <rect x="452" y="18" width="104" height="20" rx="4" fill="#0e141acc" stroke="#2a313d"/>
+          <text x="460" y="32" fill="#4ade80">Punto medio</text>
+        </g>
+        <g font-family="ui-monospace,monospace" font-size="10" fill="#65707f">
+          <text x="452" y="660" fill="#9aa5b4">0.00</text>
+          <text x="596" y="652">+50.00</text>
+          <text x="636" y="345" fill="#9aa5b4">100.00</text>
+          <text x="636" y="70">200.00</text>
+          <text x="286" y="652" text-anchor="end">−50.00</text>
+        </g>
+
+        <!-- crosshair -->
+        <g stroke="#8fb8c9" stroke-width=".8" stroke-dasharray="4 6" opacity=".55">
+          <line x1="444" y1="0" x2="444" y2="760"/><line x1="0" y1="36" x2="900" y2="36"/>
+        </g>
+
+        <!-- dimension -->
+        <g stroke="#7d8898" stroke-width="1" fill="none">
+          <path d="M292 700h300"/><path d="M292 694v12M592 694v12"/>
+          <path d="M292 700l8-4M292 700l8 4M592 700l-8-4M592 700l-8 4"/>
+        </g>
+        <text x="442" y="694" fill="#9aa5b4" font-family="ui-monospace,monospace" font-size="11" text-anchor="middle">100.00 mm</text>
+      </svg>
+
+      <div class="viewctl" role="group" aria-label="Controles de vista">
+        <button title="Acercar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button title="Alejar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+        <button title="Ajustar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      </div>
+      <div class="hint">Espacio + arrastrar = desplazar · Rueda = zoom · F8 ortogonal · Supr elimina</div>
+      <div class="scalebar"><i></i> 50 mm</div>
+    </div>
+
+    <!-- right dock -->
+    <aside class="dock" aria-label="Panel de propiedades">
+      <div class="tabs" role="tablist">
+        <div class="tab" role="tab">Plantilla</div>
+        <div class="tab" role="tab">Vértices</div>
+        <div class="tab active" role="tab" aria-selected="true">Resultados</div>
+      </div>
+      <div class="pane">
+        <section class="card">
+          <h2><svg viewBox="0 0 24 24" fill="none" stroke="#39d0ff" stroke-width="1.8"><path d="M4 3h16v5H4zM9 8v13M4 8h5M15 8h5M4 21h5M15 21h5"/></svg> Perfil I · parámetros</h2>
+          <div class="body">
+            <div class="grid2">
+              <div class="field"><label for="h">Alto h</label><div class="input" id="h">200.000<small>mm</small></div></div>
+              <div class="field"><label for="b">Ancho b</label><div class="input" id="b">100.000<small>mm</small></div></div>
+              <div class="field"><label for="tw">Alma tw</label><div class="input" id="tw">6.000<small>mm</small></div></div>
+              <div class="field"><label for="tf">Ala tf</label><div class="input focus" id="tf">10.000<small>mm</small></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+              <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12l5 5L20 7"/></svg> Aplicar</button>
+              <button class="btn ghost">Otra plantilla</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2><svg viewBox="0 0 24 24" fill="none" stroke="#39d0ff" stroke-width="1.8"><path d="M4 20h16M4 20V4"/><path d="M7 16l5-7 4 4 4-8"/></svg> Resultados · mm</h2>
+          <table>
+            <thead><tr><th>Propiedad</th><th>Valor</th><th>Unidad</th></tr></thead>
+            <tbody>
+              <tr class="grouprow"><td colspan="3">Geometría</td></tr>
+              <tr><td>Área</td><td>3 080.0000</td><td><u>mm²</u></td></tr>
+              <tr><td>Perímetro</td><td>788.0000</td><td><u>mm</u></td></tr>
+              <tr><td>Centroide X</td><td>0.0000</td><td><u>mm</u></td></tr>
+              <tr><td>Centroide Y</td><td>100.0000</td><td><u>mm</u></td></tr>
+              <tr><td>Caja</td><td>100 × 200</td><td><u>mm</u></td></tr>
+              <tr class="grouprow"><td colspan="3">Inercia centroidal</td></tr>
+              <tr class="sel"><td>Inercia Ix</td><td>20 982 666.6667</td><td><u>mm⁴</u></td></tr>
+              <tr><td>Inercia Iy</td><td>1 669 906.6667</td><td><u>mm⁴</u></td></tr>
+              <tr><td>Producto Ixy</td><td>0.0000</td><td><u>mm⁴</u></td></tr>
+              <tr><td>Principal I1</td><td>20 982 666.6667</td><td><u>mm⁴</u></td></tr>
+              <tr><td>Principal I2</td><td>1 669 906.6667</td><td><u>mm⁴</u></td></tr>
+              <tr><td>Ángulo principal</td><td>0.00</td><td><u>°</u></td></tr>
+              <tr class="grouprow"><td colspan="3">Radios y módulos</td></tr>
+              <tr><td>Radio rx</td><td>82.5380</td><td><u>mm</u></td></tr>
+              <tr><td>Radio ry</td><td>23.2846</td><td><u>mm</u></td></tr>
+              <tr><td>Radio r1</td><td>82.5380</td><td><u>mm</u></td></tr>
+              <tr><td>Radio r2</td><td>23.2846</td><td><u>mm</u></td></tr>
+              <tr><td>Módulo Sx</td><td>209 826.6667</td><td><u>mm³</u></td></tr>
+              <tr><td>Módulo Sy</td><td>33 398.1333</td><td><u>mm³</u></td></tr>
+            </tbody>
+          </table>
+          <div style="display:flex;gap:8px;padding:9px 11px;border-top:1px solid var(--line)">
+            <button class="btn" style="flex:1">Copiar</button>
+            <button class="btn" style="flex:1">CSV</button>
+          </div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============ STATUS ============ -->
+  <div class="status">
+    <div class="cell"><b>X</b> 0.00 <b>Y</b> 100.00</div>
+    <div class="cell">Δ 12.40 mm</div>
+    <div class="cell">mm</div>
+    <div class="cell"><span class="pill on">ORTO</span><span class="pill">SNAP</span></div>
+    <div class="cell">Punto medio</div>
+    <div class="cell grow">✓ Resultados actualizados</div>
+  </div>
+</div>
+</body>
+</html>

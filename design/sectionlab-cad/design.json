@@ -1,0 +1,28 @@
+{
+  "title": "SectionLab — CAD-grade interface",
+  "brief": "Redesign the SectionLab desktop window so it reads as a professional cross-section tool with CAD icons and a CAD-feeling drawing area, replacing the current generic Qt form look.",
+  "feature": "odd/tasks/sectionlab-cad-ui.md",
+  "artboards": [
+    {
+      "file": "01-estacion-oscura.html",
+      "title": "Estación CAD oscura",
+      "tradeoff": "Feels like professional CAD and keeps the eyes calm for long sessions; a dark canvas is harder to print or project and needs careful contrast tuning.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "02-plano-claro.html",
+      "title": "Plano técnico claro",
+      "tradeoff": "Reads like an engineering sheet with a ribbon and a wide results strip that shows twelve values at once; the light surface is less comfortable at night and the ribbon costs vertical space.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "03-estudio-compacto.html",
+      "title": "Estudio compacto con comandos",
+      "tradeoff": "Maximum drawing area with floating palettes and an AutoCAD-style command line for power users; floating panels overlap the drawing and the command line assumes users learn its vocabulary.",
+      "width": 1440,
+      "height": 900
+    }
+  ]
+}
