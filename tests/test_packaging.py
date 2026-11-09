@@ -20,6 +20,17 @@ def test_version_flag_reports_the_package_version(capsys) -> None:
     assert capsys.readouterr().out.strip() == f"SectionLab {__version__}"
 
 
+def test_self_test_uses_a_dialog_when_there_is_no_console(monkeypatch) -> None:
+    from sectionlab import __main__ as entry
+
+    captured: list[tuple[str, bool]] = []
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(entry, "_report_without_console", lambda report, ok: captured.append((report, ok)))
+    assert entry.main(["--self-test"]) == 0
+    assert captured and captured[0][1] is True
+    assert "area=20000.000000" in captured[0][0]
+
+
 def test_self_test_runs_the_solver(capsys) -> None:
     assert main(["--self-test"]) == 0
     output = capsys.readouterr().out

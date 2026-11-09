@@ -89,6 +89,10 @@ dist/SectionLab/SectionLab --version     # SectionLab 0.1.0
 dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, prints area and Ix
 ```
 
+The Windows executable has no console, so `--self-test` shows its result in a dialog instead of
+printing it. That is the quickest way to confirm a downloaded ZIP actually works on a machine
+without Python.
+
 The bundle is large (about 370 MB unpacked) because it ships Qt, numpy/scipy and the
 matplotlib that `sectionproperties` imports; the plotting extras and notebook dependencies
 are excluded in the spec.
