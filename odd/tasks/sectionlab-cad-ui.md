@@ -80,3 +80,7 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   `test_canvas.py`, `test_settings_ui.py`). Offscreen screenshots inspected at 1440x900 for
   dark, light and free-geometry modes; the Qt stylesheet sub-controls (spin arrows, combo
   chevron) had to be painted into cached PNGs because Qt rejects colour fragments there.
+- **L9** Windows bundle rebuilt from the redesign by GitHub Actions: run `42627713014` on
+  `windows-latest` finished `success` for `85083d0`, artifact `SectionLab-windows`
+  108.59 MB (the frozen `--self-test` gate inside the workflow re-checked the reference
+  numbers, so the packaged build computes the same section as the tests).
