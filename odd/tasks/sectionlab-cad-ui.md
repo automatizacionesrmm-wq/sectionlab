@@ -40,7 +40,7 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
 | T3 | S3 | Inline: canvas drafting surface (grid, axes, crosshair, snap marker, scale) | `a51c4c4` | done |
 | T4 | S4 | Inline: live template rebuild (kind change draws, parameter edit redraws) | `f30d9a9` | done |
 | T5 | S5 | Inline: grouped results inspector and vertex inspector styling | `853b71d` | done |
-| T6 | S1-S6 | Inline: verification, screenshots offscreen, README update | `6da4230` | done |
+| T6 | S1-S6 | Inline: verification, screenshots offscreen, README update | `cf9873b` | done |
 
 ## Log
 
