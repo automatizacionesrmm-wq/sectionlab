@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QMouseEvent, QWheelEvent
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
 from sectionlab.core.snap import SnapKind
+from sectionlab.core.units import Unit
 from sectionlab.ui.canvas import (
     GRID_STEPS,
     INNER,
@@ -507,3 +508,68 @@ def test_two_points_cannot_close_into_a_contour(canvas: CanvasView) -> None:
     canvas.add_vertex(100.0, 0.0)
     canvas.add_vertex(0.0, 0.0)
     assert canvas.is_drawing()
+
+
+# --------------------------------------------------------------- dimensions (specs S2, S4)
+
+
+def test_the_canvas_measures_every_segment_it_draws(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    assert [round(dimension.value, 3) for dimension in canvas.dimensions()] == [100.0, 100.0, 100.0, 100.0]
+
+
+def test_a_dimension_is_written_in_the_active_unit(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.set_display(Unit.CM, 2)
+    assert [canvas._dimension_text(d) for d in canvas.dimensions()] == ["10.00"] * 4
+    canvas.set_display(Unit.MM, 1)
+    assert [canvas._dimension_text(d) for d in canvas.dimensions()] == ["100.0"] * 4
+
+
+def test_dimensions_can_be_switched_off_without_losing_them(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    assert canvas.dimensions_visible()
+    canvas.set_dimensions_visible(False)
+    assert not canvas.dimensions_visible()
+    assert len(canvas.dimensions()) == 4
+
+
+def test_the_centroid_and_its_axes_are_kept_for_the_painter(canvas: CanvasView) -> None:
+    assert canvas.centroid() is None
+    canvas.set_centroid(50.0, 60.0, angle_deg=12.5)
+    assert canvas.centroid() == (50.0, 60.0, 12.5)
+    canvas.set_centroid(None)
+    assert canvas.centroid() is None
+
+
+def test_the_edited_value_highlights_the_matching_dimension(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.set_value_highlight(100.0, "b")
+    assert canvas.value_highlight() == (100.0, "b")
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "b = 100.00"
+
+
+def test_a_template_section_still_shows_its_dimensions(canvas: CanvasView) -> None:
+    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"width": 200.0, "height": 100.0}))
+    assert len(canvas.dimensions()) == 4
+    assert sorted({round(d.value, 3) for d in canvas.dimensions()}) == [100.0, 200.0]
+
+
+def test_the_drawing_renders_with_dimensions_axes_and_a_centroid(canvas: CanvasView) -> None:
+    """Paint the whole foreground once: dimensions, X/Y labels, centroid and snap glyph.
+
+    Rendering is what catches an error inside the painter, which no state assertion sees.
+    """
+    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"width": 200.0, "height": 100.0}))
+    canvas.set_centroid(0.0, 50.0, angle_deg=15.0)
+    canvas.set_value_highlight(200.0, "b")
+    canvas._snap_kind = SnapKind.ENDPOINT
+    canvas._cursor_scene = QPointF(100.0, 0.0)
+    canvas.select_vertex(OUTER, 1)
+    pixmap = canvas.grab()
+    assert not pixmap.isNull()
+    image = pixmap.toImage()
+    colours = {image.pixelColor(x, y).name() for x in range(0, image.width(), 7) for y in range(0, image.height(), 7)}
+    # The centroid marker and the dimension text must actually reach the screen.
+    assert tokens(Theme.DARK)["centroid"].lower() in colours
+    assert len(colours) > 5

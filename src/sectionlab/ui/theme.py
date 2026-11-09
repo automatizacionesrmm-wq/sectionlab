@@ -55,6 +55,8 @@ DARK: dict[str, str] = {
     "centroid": "#ffb648",
     "crosshair": "#4a6b7d",
     "draft": "#39d0ff",
+    "dim": "#4a6b7d",
+    "dim_text": "#c9d4e4",
     "snap": "#4ade80",
     "warning": "#ffb648",
 }
@@ -92,6 +94,8 @@ LIGHT: dict[str, str] = {
     "centroid": "#c2410c",
     "crosshair": "#9fb0c4",
     "draft": "#1d6ff2",
+    "dim": "#7c8899",
+    "dim_text": "#27313d",
     "snap": "#15803d",
     "warning": "#b45309",
 }

@@ -8,7 +8,7 @@ keeps undo/redo exact for small sections (spec S8, S14).
 from __future__ import annotations
 
 from dataclasses import replace
-from math import hypot
+from math import cos, hypot, radians, sin
 from typing import Mapping
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
@@ -18,12 +18,14 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPolygonF,
     QUndoCommand,
     QUndoStack,
 )
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
+    QLineEdit,
     QGraphicsLineItem,
     QGraphicsPathItem,
     QGraphicsScene,
@@ -31,15 +33,26 @@ from PySide6.QtWidgets import (
 )
 
 from sectionlab.core.model import Contour, Point, Section
+from sectionlab.core.precision import format_value
 from sectionlab.core.snap import SnapKind, apply_ortho, candidates, find_snap
+from sectionlab.core.units import Unit, from_mm
+from sectionlab.ui import strings
 from sectionlab.ui import theme as ui_theme
+from sectionlab.ui.dimensions import Dimension, dimensions_for
 
 OUTER = "outer"
 INNER = "inner"
 
 SNAP_TOLERANCE_PX = 8.0
-NODE_RADIUS_PX = 4.0
+NODE_RADIUS_PX = 3.0
 NODE_HIT_PX = 9.0
+# The selected vertex gets a ring and its index, because a 3 px dot alone is not readable.
+SELECTED_RING_PX = 6.5
+# Distance from the contour to the dimension line, and how far the extension lines run.
+DIM_OFFSET_PX = 26.0
+DIM_GAP_PX = 4.0
+DIM_HIT_PX = 13.0
+SNAP_GLYPH_PX = 5.5
 # Clicking this close to the first vertex closes the polyline, like an object snap target.
 CLOSE_HIT_PX = 14.0
 ZOOM_STEP = 1.15
@@ -52,6 +65,8 @@ GRID_STEPS = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0)
 MIN_GRID_PX = 7.0
 
 _PALETTE: dict[str, str] = dict(ui_theme.DARK)
+
+
 
 _OUTER_PEN = QPen(QColor(_PALETTE["contour"]), 2)
 _OUTER_PEN.setCosmetic(True)
@@ -168,7 +183,13 @@ class CanvasView(QGraphicsView):
         self._undo = QUndoStack(self)
         self._snap = None
         self._cursor_scene: QPointF | None = None
-        self._snap_marker: QGraphicsEllipseItem | None = None
+        self._snap_kind: SnapKind | None = None
+        self._unit = Unit.MM
+        self._decimals = 2
+        self._dims_visible = True
+        self._centroid: tuple[float, float, float] | None = None
+        self._value_highlight: tuple[float, str] | None = None
+        self._dimension_editor: QLineEdit | None = None
         self._pan_origin: QPoint | None = None
         self._rebuild()
 
@@ -195,6 +216,46 @@ class CanvasView(QGraphicsView):
 
     def is_ortho(self) -> bool:
         return self._ortho
+
+    def set_display(self, unit: Unit, decimals: int) -> None:
+        """Render every measurement in the active unit, the one the panels accept."""
+        self._unit = unit
+        self._decimals = decimals
+        self.viewport().update()
+
+    def display_unit(self) -> Unit:
+        return self._unit
+
+    def set_dimensions_visible(self, visible: bool) -> None:
+        """Show or hide the per-segment dimensions (spec S2)."""
+        self._dims_visible = visible
+        self.viewport().update()
+
+    def dimensions_visible(self) -> bool:
+        return self._dims_visible
+
+    def dimensions(self) -> list[Dimension]:
+        """One dimension per segment of the outline, in millimetres."""
+        outer = self._section.outer
+        if outer is None or len(outer.points) < 2:
+            return []
+        return dimensions_for(outer.points)
+
+    def set_centroid(self, cx: float | None, cy: float | None = None, *, angle_deg: float = 0.0) -> None:
+        """Mark the centroid and its principal axes (spec S4)."""
+        self._centroid = None if cx is None or cy is None else (float(cx), float(cy), float(angle_deg))
+        self.viewport().update()
+
+    def centroid(self) -> tuple[float, float, float] | None:
+        return self._centroid
+
+    def set_value_highlight(self, value_mm: float | None, name: str = "") -> None:
+        """Name the dimension the template form is editing, so the two views agree (spec S7)."""
+        self._value_highlight = None if value_mm is None else (float(value_mm), name)
+        self.viewport().update()
+
+    def value_highlight(self) -> tuple[float, str] | None:
+        return self._value_highlight
 
     def set_section(self, section: Section, *, record: bool = False, fit: bool = True) -> None:
         """Replace the drawing, optionally as an undoable edit."""
@@ -402,14 +463,7 @@ class CanvasView(QGraphicsView):
             anchor = self._last_vertex()
             if anchor is not None:
                 self._rubber.setLine(anchor.x, -anchor.y, anchor.x, -anchor.y)
-        marker = QGraphicsEllipseItem(-5.0, -5.0, 10.0, 10.0)
-        marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        marker.setPen(QPen(QColor(_PALETTE["snap"]), 1.6))
-        marker.setBrush(Qt.BrushStyle.NoBrush)
-        marker.setZValue(20)
-        marker.setVisible(False)
-        self._scene.addItem(marker)
-        self._snap_marker = marker
+        self._snap_kind = None
         self._paint_selection()
 
     def _paint_selection(self) -> None:
@@ -510,6 +564,167 @@ class CanvasView(QGraphicsView):
         if rect.left() <= 0 <= rect.right():
             painter.drawLine(QPointF(0.0, rect.top()), QPointF(0.0, rect.bottom()))
 
+    # ------------------------------------------------------------------ painting
+
+    def _device_normal(self, dimension: Dimension) -> QPointF:
+        """The dimension's outward normal in device pixels, y axis included."""
+        origin = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
+        tip = self.mapFromScene(
+            QPointF(dimension.start.x + dimension.normal.x, -dimension.start.y - dimension.normal.y)
+        )
+        dx = tip.x() - origin.x()
+        dy = tip.y() - origin.y()
+        length = hypot(dx, dy) or 1.0
+        return QPointF(dx / length, dy / length)
+
+    def _dimension_text(self, dimension: Dimension) -> str:
+        value = format_value(from_mm(dimension.value, self._unit), self._decimals)
+        if self._is_highlighted(dimension):
+            _, name = self._value_highlight or (0.0, "")
+            return f"{name} = {value}" if name else value
+        return value
+
+    def _is_highlighted(self, dimension: Dimension) -> bool:
+        if self._value_highlight is None:
+            return False
+        return abs(dimension.value - self._value_highlight[0]) <= 1e-6
+
+    def _dimension_geometry(self, dimension: Dimension) -> tuple[QPointF, QPointF, QPointF]:
+        """The two ends of the dimension line and the outward normal in device pixels."""
+        normal = self._device_normal(dimension)
+        start = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
+        end = self.mapFromScene(QPointF(dimension.end.x, -dimension.end.y))
+        first = QPointF(start.x() + normal.x() * DIM_OFFSET_PX, start.y() + normal.y() * DIM_OFFSET_PX)
+        second = QPointF(end.x() + normal.x() * DIM_OFFSET_PX, end.y() + normal.y() * DIM_OFFSET_PX)
+        return first, second, normal
+
+    def _draw_dimensions(self, painter: QPainter) -> None:
+        """One dimension per segment, written outside the contour (spec S2)."""
+        if not self._dims_visible:
+            return
+        font = painter.font()
+        font.setPointSizeF(8.0)
+        font.setBold(False)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        for dimension in self.dimensions():
+            first, second, normal = self._dimension_geometry(dimension)
+            colour = QColor(_PALETTE["accent"] if self._is_highlighted(dimension) else _PALETTE["dim_text"])
+            style = Qt.PenStyle.SolidLine if dimension.editable else Qt.PenStyle.DashLine
+            painter.setPen(QPen(colour, 1.0, style))
+            start = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
+            end = self.mapFromScene(QPointF(dimension.end.x, -dimension.end.y))
+            painter.drawLine(first, second)
+            for anchor, target in ((start, first), (end, second)):
+                painter.drawLine(
+                    QPointF(anchor.x() + normal.x() * DIM_GAP_PX, anchor.y() + normal.y() * DIM_GAP_PX),
+                    QPointF(target.x() + normal.x() * DIM_GAP_PX, target.y() + normal.y() * DIM_GAP_PX),
+                )
+            label = self._dimension_text(dimension)
+            width = metrics.horizontalAdvance(label)
+            height = metrics.height()
+            middle = QPointF((first.x() + second.x()) / 2, (first.y() + second.y()) / 2)
+            centre = QPointF(
+                middle.x() + normal.x() * (DIM_GAP_PX + 2.0),
+                middle.y() + normal.y() * (DIM_GAP_PX + 2.0),
+            )
+            box = QRectF(centre.x() - width / 2 - 3, centre.y() - height / 2 - 1, width + 6, height + 2)
+            painter.fillRect(box, QColor(_PALETTE["canvas"]))
+            painter.setPen(QPen(colour))
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+
+    def _draw_axes_labels(self, painter: QPainter, origin: QPoint, width: int, height: int) -> None:
+        """Name the two reference axes, so the origin is unmistakable (spec S4)."""
+        font = painter.font()
+        font.setPointSizeF(8.0)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(_PALETTE["axis_text"])))
+        if 0 <= origin.y() <= height:
+            painter.drawText(width - 16, int(origin.y()) - 5, "X")
+        if 0 <= origin.x() <= width:
+            painter.drawText(int(origin.x()) + 7, 15, "Y")
+        font.setBold(False)
+        painter.setFont(font)
+
+    def _draw_centroid(self, painter: QPainter) -> None:
+        """Centroid dot with the two principal axes, labelled 1 and 2 (spec S4)."""
+        if self._centroid is None:
+            return
+        cx, cy, angle = self._centroid
+        centre = self.mapFromScene(QPointF(cx, -cy))
+        colour = QColor(_PALETTE["centroid"])
+        radius = 0.42 * min(self.viewport().width(), self.viewport().height())
+        painter.setPen(QPen(colour, 1.0, Qt.PenStyle.DashLine))
+        for label, degrees in (("1", angle), ("2", angle + 90.0)):
+            dx = cos(radians(degrees)) * radius
+            dy = -sin(radians(degrees)) * radius
+            painter.drawLine(QPointF(centre.x() - dx, centre.y() - dy), QPointF(centre.x() + dx, centre.y() + dy))
+            painter.drawText(QPointF(centre.x() + dx * 1.04, centre.y() + dy * 1.04), label)
+        painter.setBrush(QBrush(colour))
+        painter.setPen(QPen(colour, 1.0))
+        painter.drawEllipse(centre, 3.5, 3.5)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawText(QPointF(centre.x() + 7, centre.y() - 6), "C")
+
+    def _draw_snap(self, painter: QPainter) -> None:
+        """Glyph and name of the snap the cursor is on, like an osnap marker (spec S5)."""
+        if self._snap_kind is None or self._cursor_scene is None:
+            return
+        point = self.mapFromScene(self._cursor_scene)
+        colour = QColor(_PALETTE["snap"])
+        painter.setPen(QPen(colour, 1.6))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        size = SNAP_GLYPH_PX
+        kind = self._snap_kind
+        if kind is SnapKind.ENDPOINT:
+            painter.drawRect(QRectF(point.x() - size, point.y() - size, size * 2, size * 2))
+        elif kind is SnapKind.MIDPOINT:
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(point.x(), point.y() - size),
+                        QPointF(point.x() - size, point.y() + size),
+                        QPointF(point.x() + size, point.y() + size),
+                    ]
+                )
+            )
+        elif kind is SnapKind.INTERSECTION:
+            painter.drawLine(QPointF(point.x() - size, point.y() - size), QPointF(point.x() + size, point.y() + size))
+            painter.drawLine(QPointF(point.x() - size, point.y() + size), QPointF(point.x() + size, point.y() - size))
+        elif kind is SnapKind.CENTER:
+            painter.drawEllipse(point, size, size)
+        elif kind is SnapKind.PERPENDICULAR:
+            painter.drawLine(QPointF(point.x() - size, point.y() + size), QPointF(point.x() + size, point.y() + size))
+            painter.drawLine(QPointF(point.x() - size, point.y() - size), QPointF(point.x() - size, point.y() + size))
+        painter.setPen(QPen(colour))
+        name = strings.label_for(f"snap_{kind.value.lower()}")
+        painter.drawText(QPointF(point.x() + size + 6, point.y() - size - 2), name)
+
+    def _selected_point(self) -> QPointF | None:
+        if self._selected is None:
+            return None
+        name, index = self._selected
+        contour = self._section.outer if name == OUTER else self._section.inner
+        if contour is None or not 0 <= index < len(contour.points):
+            return None
+        point = contour.points[index]
+        return self.mapFromScene(QPointF(point.x, -point.y))
+
+    def _draw_selected_vertex(self, painter: QPainter) -> None:
+        """A ring and the vertex index, because the handle alone is too small to read."""
+        point = self._selected_point()
+        if point is None:
+            return
+        colour = QColor(_PALETTE["handle_selected"])
+        painter.setPen(QPen(colour, 1.6))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(point, SELECTED_RING_PX, SELECTED_RING_PX)
+        assert self._selected is not None
+        painter.drawText(QPointF(point.x() + SELECTED_RING_PX + 3, point.y() - SELECTED_RING_PX), f"v{self._selected[1]}")
+
+    # ------------------------------------------------------------------ foreground
+
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         painter.save()
         painter.setWorldMatrixEnabled(False)
@@ -544,6 +759,10 @@ class CanvasView(QGraphicsView):
                 value += int(step)
                 y = self.mapFromScene(QPointF(0.0, value)).y()
 
+        self._draw_axes_labels(painter, origin, width, height)
+        self._draw_centroid(painter)
+        self._draw_dimensions(painter)
+
         if self._cursor_scene is not None:
             cursor = self.mapFromScene(self._cursor_scene)
             painter.setPen(QPen(QColor(_PALETTE["crosshair"]), 1, Qt.PenStyle.DashLine))
@@ -551,6 +770,8 @@ class CanvasView(QGraphicsView):
             painter.drawLine(QPoint(0, cursor.y()), QPoint(width, cursor.y()))
             painter.setPen(QPen(QColor(_PALETTE["text_faint"])))
             painter.drawText(QPoint(cursor.x() + 8, cursor.y() - 6), f"{self._cursor_scene.x():.1f}, {-self._cursor_scene.y():.1f}")
+        self._draw_snap(painter)
+        self._draw_selected_vertex(painter)
         painter.restore()
 
     # ------------------------------------------------------------- mouse and keys
@@ -621,11 +842,7 @@ class CanvasView(QGraphicsView):
         point, kind = self.snapped_point(scene_pos)
         self.snapChanged.emit(kind.value if kind is not None else "")
         self.cursorMoved.emit(point.x, point.y)
-        if self._snap_marker is not None:
-            visible = kind is not None and self._editable
-            self._snap_marker.setVisible(visible)
-            if visible:
-                self._snap_marker.setPos(point.x, -point.y)
+        self._snap_kind = kind if self._editable else None
         self.viewport().update()
 
         if self._drag is not None:

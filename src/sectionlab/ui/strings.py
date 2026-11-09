@@ -121,6 +121,8 @@ UI: dict[str, str] = {
     "value": "Valor",
     "unit": "Unidad",
     "ortho": "Ortogonal",
+    "dimensions": "Cotas",
+    "dimensions_tip": "Muestra la medida de cada segmento sobre el dibujo",
     "snap_endpoint": "Extremo",
     "snap_intersection": "Intersección",
     "snap_midpoint": "Punto medio",

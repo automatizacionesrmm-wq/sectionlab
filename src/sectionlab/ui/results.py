@@ -48,6 +48,21 @@ def convert(field: str, value: float, unit: Unit) -> float:
     return value
 
 
+def unit_symbol(field: str, unit: Unit) -> str:
+    """The symbol of one property in the active unit, with the exponent it is raised to.
+
+    The stored symbols are millimetres (spec S2); showing "cm²" next to a value that was
+    converted to square centimetres is what keeps the number and its unit in agreement.
+    """
+    if field in _AREAS:
+        return f"{unit.value}\u00b2"
+    if field in _INERTIAS:
+        return f"{unit.value}\u2074"
+    if field in _MODULI:
+        return f"{unit.value}\u00b3"
+    return unit.value
+
+
 def format_length(value_mm: float, unit: Unit, decimals: int) -> str:
     """Format one millimetre value for the screen, in the active unit."""
     return format_value(from_mm(value_mm, unit), decimals)
@@ -58,6 +73,8 @@ def result_rows(props: SectionProperties, unit: Unit) -> list[tuple[str, float, 
     rows: list[tuple[str, float, str]] = []
     for field in SectionProperties.__dataclass_fields__:
         label, symbol = strings.result_label(field)
+        if symbol.startswith("mm"):
+            symbol = unit_symbol(field, unit)
         rows.append((label, convert(field, getattr(props, field), unit), symbol))
     return rows
 

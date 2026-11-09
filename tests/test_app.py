@@ -334,3 +334,45 @@ def test_the_status_bar_explains_how_to_bring_the_panels_back(
     window.set_panels_visible(True)
 
     assert window._panels_hint.isHidden()
+
+
+def test_the_view_menu_can_hide_the_dimensions(window: MainWindow) -> None:
+    assert window.dimensions_visible()
+    assert window.action_dimensions.isChecked()
+    window.action_dimensions.setChecked(False)
+    assert not window.dimensions_visible()
+    window.set_dimensions_visible(True)
+    assert window.action_dimensions.isChecked()
+
+
+def test_the_canvas_writes_numbers_in_the_unit_the_panels_accept(window: MainWindow) -> None:
+    """The dimensions, the panels and the results all speak the active unit (spec S2)."""
+    window.canvas.set_section(
+        Section(
+            outer=Contour(
+                points=[Point(0, 0), Point(100, 0), Point(100, 100), Point(0, 100)],
+                closed=True,
+            )
+        )
+    )
+    assert window.calculate_now() is True
+    assert window.canvas._dimension_text(window.canvas.dimensions()[0]) == "100.00"
+
+    window.set_unit(Unit.CM)
+    assert window.canvas.display_unit() is Unit.CM
+    assert window.canvas._dimension_text(window.canvas.dimensions()[0]) == "10.00"
+    window.set_unit(Unit.MM)
+    assert window.canvas._dimension_text(window.canvas.dimensions()[0]) == "100.00"
+
+
+def test_every_panel_shows_the_unit_its_values_were_converted_to(window: MainWindow) -> None:
+    window.apply_template(TemplateKind.RECTANGLE.value)
+    assert window.calculate_now() is True
+    window.set_unit(Unit.CM)
+    # 100 mm is 10 cm: the value, the symbol and the vertex table all agree.
+    assert window.results_table.item(0, 1).text() == "200.00"
+    assert window.results_table.item(0, 2).text() == "cm²"
+    assert window.results_table.item(1, 2).text() == "cm"
+    assert window.vertex_table.item(1, 2).text() == "10.00"
+    window.set_unit(Unit.MM)
+    assert window.results_table.item(0, 2).text() == "mm²"

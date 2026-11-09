@@ -277,6 +277,13 @@ class MainWindow(QMainWindow):
         self.action_ortho.toggled.connect(self.canvas.set_ortho)
         self.canvas.set_ortho(False)
 
+        self.action_dimensions = QAction(strings.label_for("dimensions"), self)
+        self.action_dimensions.setCheckable(True)
+        self.action_dimensions.setChecked(True)
+        self.action_dimensions.setShortcut(QKeySequence("Ctrl+D"))
+        self.action_dimensions.setStatusTip(strings.label_for("dimensions_tip"))
+        self.action_dimensions.toggled.connect(self.set_dimensions_visible)
+
         self.action_zoom_in = QAction(strings.label_for("zoom_in"), self)
         self.action_zoom_in.setShortcut(QKeySequence("Ctrl++"))
         self.action_zoom_in.triggered.connect(self.canvas.zoom_in)
@@ -322,6 +329,7 @@ class MainWindow(QMainWindow):
             view_menu.addAction(action)
         view_menu.addSeparator()
         view_menu.addAction(self.action_ortho)
+        view_menu.addAction(self.action_dimensions)
         view_menu.addAction(self.action_theme)
 
         # A closed panel must always be findable again: one entry per inspector, kept in
@@ -502,6 +510,7 @@ class MainWindow(QMainWindow):
 
         self._props = props
         self._last_error = None
+        self.canvas.set_centroid(props.cx, props.cy, angle_deg=props.principal_angle_deg)
         self._refresh_displays()
         self._set_message(strings.label_for("calculated"))
         return True
@@ -515,6 +524,15 @@ class MainWindow(QMainWindow):
     def set_decimals(self, decimals: int) -> None:
         self._decimals = int(decimals)
         self._refresh_displays()
+
+    def set_dimensions_visible(self, visible: bool) -> None:
+        """Show or hide the per-segment dimensions (spec S2)."""
+        self.canvas.set_dimensions_visible(visible)
+        if self.action_dimensions.isChecked() != visible:
+            self.action_dimensions.setChecked(visible)
+
+    def dimensions_visible(self) -> bool:
+        return self.canvas.dimensions_visible()
 
     # ------------------------------------------------------------------ files
 
@@ -600,6 +618,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ internals
 
     def _refresh_displays(self) -> None:
+        # The canvas writes its measurements in the same unit the panels accept, so a value
+        # typed here and a value read there can never disagree (spec S2).
+        self.canvas.set_display(self._unit, self._decimals)
         self.vertex_table.show_section(self.canvas.section(), self._unit, self._decimals)
         self.results_table.show_properties(self._props, self._unit, self._decimals)
         self._unit_label.setText(unit_label(self._unit))
@@ -612,6 +633,7 @@ class MainWindow(QMainWindow):
 
     def _on_section_changed(self) -> None:
         self._props = None
+        self.canvas.set_centroid(None)
         self._refresh_displays()
         self._sync_undo_actions()
 

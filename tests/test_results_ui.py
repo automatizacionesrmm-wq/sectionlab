@@ -44,7 +44,21 @@ def test_table_shows_values_converted_and_rounded(qtbot, props: SectionPropertie
     first_row = [table.item(0, column).text() for column in range(3)]
     assert first_row[0] == "Área"
     assert first_row[1] == "200.00"
-    assert first_row[2] == "mm²"
+    assert first_row[2] == "cm²"
+
+
+def test_the_unit_column_follows_the_active_unit(qtbot, props: SectionProperties) -> None:
+    """A value converted to centimetres must not keep a millimetre symbol (spec S2)."""
+    table = ResultsTable()
+    qtbot.addWidget(table)
+    table.show_properties(props, Unit.M, 2)
+    symbols = {table.item(row, 0).text(): table.item(row, 2).text() for row in range(table.rowCount())}
+    assert symbols["Área"] == "m²"
+    assert symbols["Inercia Ix"] == "m⁴"
+    assert symbols["Módulo elástico Sx"] == "m³"
+    assert symbols["Perímetro"] == "m"
+    # An angle is not a length: its symbol stays degrees.
+    assert symbols["Ángulo principal"] == "°"
 
 
 def test_table_without_results_explains_itself(qtbot) -> None:
@@ -70,7 +84,7 @@ def test_csv_converts_values_to_the_active_unit(qtbot, props: SectionProperties)
     qtbot.addWidget(table)
     table.show_properties(props, Unit.CM, 2)
     perimeter = convert("perimeter", props.perimeter, Unit.CM)
-    assert f"Perímetro,{format_full(perimeter)},mm" in table.csv_text().splitlines()
+    assert f"Perímetro,{format_full(perimeter)},cm" in table.csv_text().splitlines()
 
 
 def test_csv_is_empty_without_results(qtbot) -> None:
