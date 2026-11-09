@@ -126,3 +126,9 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   `test_the_panels_menu_can_reopen_the_one_that_was_closed`,
   `test_the_status_bar_explains_how_to_bring_the_panels_back`; the older
   `test_hiding_one_panel_unchecks_the_toggle` now pins the all-visible semantics.
+  Verified: 334 tests green, offscreen captures of the submenu and of the status hint, CI run
+  42644791067 on `86dff1a` green, and Release `v0.1.1` published with setup 71.81 MB,
+  portable 108.99 MB and code 44 625 B. The version was bumped because a code archive that
+  keeps the `0.1.0` name would be indistinguishable from the one already installed, and
+  `tests/test_package.py` now derives the expected version from `pyproject.toml` instead of
+  hard-coding it, which is what failed first.
