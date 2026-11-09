@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QDockWidget
 
 from sectionlab.core.model import Contour, Point, Section
@@ -458,3 +460,82 @@ def test_the_focused_template_parameter_names_its_dimension(window: MainWindow) 
     assert name == strings.label_for("b")
     window.template_panel.focus_parameter("h")
     assert window.canvas.value_highlight()[1] == strings.label_for("h")
+
+
+# ------------------------------------------------- inspectors you can actually move (S8)
+
+
+def test_the_inspectors_start_on_both_sides(window: MainWindow) -> None:
+    window.resize(1200, 800)
+    assert window.dockWidgetArea(window._dock_by_name["template"]) == Qt.DockWidgetArea.LeftDockWidgetArea
+    assert window.dockWidgetArea(window._dock_by_name["vertices"]) == Qt.DockWidgetArea.LeftDockWidgetArea
+    assert window.dockWidgetArea(window._dock_by_name["results"]) == Qt.DockWidgetArea.RightDockWidgetArea
+
+
+def test_dragging_a_header_docks_the_panel_on_the_side_it_was_dropped(window: MainWindow) -> None:
+    window.resize(1200, 800)
+    dock = window._dock_by_name["results"]
+    header = dock.titleBarWidget()
+    left_drop = window.mapToGlobal(QPoint(40, 200))
+    start = window.mapToGlobal(QPoint(window.width() - 40, 200))
+    header.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(10, 10),
+            QPointF(start),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    header.mouseMoveEvent(
+        QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(10, 10),
+            QPointF(left_drop),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    header.mouseReleaseEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(10, 10),
+            QPointF(left_drop),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert window.dockWidgetArea(dock) == Qt.DockWidgetArea.LeftDockWidgetArea
+
+
+def test_a_panel_dropped_outside_the_window_floats_and_comes_back(window: MainWindow) -> None:
+    window.resize(1200, 800)
+    dock = window._dock_by_name["vertices"]
+    window.move_panel(dock, QPoint(-400, -400))
+    assert dock.isFloating() is True
+    window.toggle_panel_float(dock)
+    assert dock.isFloating() is False
+    assert window.dockWidgetArea(dock) != Qt.DockWidgetArea.NoDockWidgetArea
+
+
+def test_the_header_menu_offers_both_sides_and_floating(window: MainWindow) -> None:
+    menu = window.panel_menu(window._dock_by_name["results"], QPoint(0, 0))
+    labels = [action.text() for action in menu.actions() if action.text()]
+    assert strings.label_for("panel_left") in labels
+    assert strings.label_for("panel_right") in labels
+    assert strings.label_for("panel_float") in labels
+    assert strings.label_for("panel_hide") in labels
+
+
+def test_selecting_a_vertex_on_the_drawing_selects_its_row(window: MainWindow) -> None:
+    window.apply_template(TemplateKind.RECTANGLE.value)
+    window.canvas.select_vertex("outer", 2)
+    assert window.vertex_table.selected_vertex() == ("outer", 2)
+    # The mirror must not echo back and forth.
+    seen: list[tuple[str, int]] = []
+    window.canvas.vertexSelected.connect(lambda contour, index: seen.append((contour, index)))
+    window.canvas.select_vertex("outer", 2)
+    assert seen == []

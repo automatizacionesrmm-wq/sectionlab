@@ -100,6 +100,8 @@ class VertexTable(QTableWidget):
             row = self._rows.index((contour, index))
         except ValueError:
             return False
+        if row == self.currentRow() and self.selectionModel().hasSelection():
+            return True
         self.selectRow(row)
         return True
 

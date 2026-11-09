@@ -370,12 +370,20 @@ class CanvasView(QGraphicsView):
         return self._selected
 
     def select_vertex(self, contour: str, index: int) -> None:
-        """Highlight one vertex; `vertexSelected` is emitted for the window's vertex table."""
+        """Highlight one vertex; `vertexSelected` is emitted for the window's vertex table.
+
+        Selecting what is already selected stays silent, so the table and the drawing can
+        mirror each other without echoing the same click back and forth.
+        """
+        if self._selected == (contour, index):
+            return
         self._selected = (contour, index)
         self._paint_selection()
         self.vertexSelected.emit(contour, index)
 
     def clear_selection(self) -> None:
+        if self._selected is None:
+            return
         self._selected = None
         self._paint_selection()
         self.vertexSelected.emit("", -1)

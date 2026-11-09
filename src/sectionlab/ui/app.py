@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QDockWidget,
     QToolBar,
@@ -61,6 +62,64 @@ FILE_FILTER = f"SectionLab (*{FILE_EXTENSION})"
 CSV_FILTER = "CSV (*.csv)"
 PANEL_WIDTH = 360
 PANEL_MIN_WIDTH = 240
+
+
+class _PanelHeader(QWidget):
+    """Title bar of an inspector: drag it to a side, double click to float, right click for a menu."""
+
+    DRAG_THRESHOLD = 6
+
+    def __init__(self, dock: QDockWidget, window: "MainWindow", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._dock = dock
+        self._window = window
+        self._origin: QPointF | None = None
+        self._dragging = False
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip(strings.label_for("panel_move_tip"))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._origin = event.globalPosition()
+            self._dragging = False
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._origin is None:
+            super().mouseMoveEvent(event)
+            return
+        if not self._dragging:
+            delta = (event.globalPosition() - self._origin).manhattanLength()
+            if delta >= self.DRAG_THRESHOLD:
+                self._dragging = True
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.button() != Qt.MouseButton.LeftButton or self._origin is None:
+            super().mouseReleaseEvent(event)
+            return
+        moved = self._dragging
+        self._origin = None
+        self._dragging = False
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        if moved:
+            self._window.move_panel(self._dock, event.globalPosition().toPoint())
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._window.toggle_panel_float(self._dock)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802 - Qt override
+        menu = self._window.panel_menu(self._dock, event.globalPos())
+        menu.exec(event.globalPos())
+        event.accept()
 
 
 class MainWindow(QMainWindow):
@@ -148,16 +207,19 @@ class MainWindow(QMainWindow):
             ("vertices", strings.label_for("vertex_table"), "vertex", self.vertex_table, 340),
             ("results", strings.label_for("results"), "calculate", self.results_table, 300),
         )
-        previous: QDockWidget | None = None
         for name, title, glyph, content, _height in specs:
-            dock = self._dock(name, title, glyph, content)
-            if previous is None:
-                self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-            else:
-                self.splitDockWidget(previous, dock, Qt.Orientation.Vertical)
-            previous = dock
-        self.resizeDocks(self._docks, [PANEL_WIDTH] * len(self._docks), Qt.Orientation.Horizontal)
-        self.resizeDocks(self._docks, [spec[4] for spec in specs], Qt.Orientation.Vertical)
+            self._dock(name, title, glyph, content)
+
+        # Template and vertices on the left, results on the right: the drawing keeps the
+        # middle and stays the largest area (spec S8).
+        template = self._dock_by_name["template"]
+        vertices = self._dock_by_name["vertices"]
+        results = self._dock_by_name["results"]
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, template)
+        self.splitDockWidget(template, vertices, Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, results)
+        self.resizeDocks([template, vertices], [specs[0][4], specs[1][4]], Qt.Orientation.Vertical)
+        self.resizeDocks([template, results], [PANEL_WIDTH, PANEL_WIDTH], Qt.Orientation.Horizontal)
 
     def _dock(self, name: str, title: str, glyph: str, content: QWidget) -> QDockWidget:
         """A movable, floatable, resizable inspector holding one panel."""
@@ -183,7 +245,7 @@ class MainWindow(QMainWindow):
         return dock
 
     def _panel_header(self, dock: QDockWidget, title: str, glyph: str) -> QWidget:
-        header = QWidget(dock)
+        header = _PanelHeader(dock, self, dock)
         header.setObjectName("panel_header")
         layout = QHBoxLayout(header)
         layout.setContentsMargins(10, 6, 6, 6)
@@ -241,6 +303,56 @@ class MainWindow(QMainWindow):
         if not self._template_mode:
             dock.hide()
         self._sync_panels_action()
+
+    def panel_target_at(self, global_point: QPoint) -> Qt.DockWidgetArea | None:
+        """The side a drop would dock to, or None when the point is outside the window."""
+        local = self.mapFromGlobal(global_point)
+        if not self.rect().contains(local):
+            return None
+        if local.x() < self.width() / 2:
+            return Qt.DockWidgetArea.LeftDockWidgetArea
+        return Qt.DockWidgetArea.RightDockWidgetArea
+
+    def place_panel(self, dock: QDockWidget, area: Qt.DockWidgetArea) -> None:
+        """Dock one inspector on a side of the window."""
+        dock.setFloating(False)
+        self.addDockWidget(area, dock)
+        dock.show()
+        self._sync_panels_action()
+
+    def move_panel(self, dock: QDockWidget, global_point: QPoint) -> None:
+        """Drop a dragged inspector: a side of the window, or a float where it was left."""
+        area = self.panel_target_at(global_point)
+        if area is None:
+            dock.setFloating(True)
+            dock.move(global_point - QPoint(dock.width() // 2, 12))
+            dock.show()
+            self._sync_panels_action()
+            return
+        self.place_panel(dock, area)
+
+    def toggle_panel_float(self, dock: QDockWidget) -> None:
+        """Double clicking a header pops the inspector out, and back in."""
+        if dock.isFloating():
+            self.place_panel(dock, Qt.DockWidgetArea.RightDockWidgetArea)
+            return
+        dock.setFloating(True)
+        dock.move(self.mapToGlobal(QPoint(self.width() // 3, self.height() // 4)))
+        dock.show()
+        self._sync_panels_action()
+
+    def panel_menu(self, dock: QDockWidget, global_point: QPoint) -> QMenu:
+        """The header's own menu: a side to dock to, or float it."""
+        menu = QMenu(self)
+        menu.addAction(strings.label_for("panel_left"), lambda: self.place_panel(dock, Qt.DockWidgetArea.LeftDockWidgetArea))
+        menu.addAction(strings.label_for("panel_right"), lambda: self.place_panel(dock, Qt.DockWidgetArea.RightDockWidgetArea))
+        if dock.isFloating():
+            menu.addAction(strings.label_for("panel_dock"), lambda: self.toggle_panel_float(dock))
+        else:
+            menu.addAction(strings.label_for("panel_float"), lambda: self.toggle_panel_float(dock))
+        menu.addSeparator()
+        menu.addAction(strings.label_for("panel_hide"), dock.hide)
+        return menu
 
     def panels_visible(self) -> bool:
         """True when at least one inspector is on screen."""
