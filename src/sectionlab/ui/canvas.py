@@ -200,8 +200,11 @@ class CanvasView(QGraphicsView):
         """Finish the polyline being drawn: the last vertex joins the first one."""
         if not self.is_drawing():
             return
-        contour = replace(self._section.outer, closed=True)
+        points = list(self._section.outer.points)
+        while len(points) > 2 and points[-1] == points[-2]:
+            points.pop()
         self._drawing = False
+        contour = replace(self._section.outer, points=points, closed=True)
         self._replace_contour(OUTER, contour, "close contour")
         self.drawingChanged.emit(False)
 
@@ -212,6 +215,10 @@ class CanvasView(QGraphicsView):
         self._drawing = False
         self.set_section(Section(outer=Contour(points=[])), fit=False)
         self.drawingChanged.emit(False)
+
+    def draft_line(self) -> QGraphicsLineItem | None:
+        """The dashed guide from the last vertex to the cursor while drawing."""
+        return self._rubber
 
     def selected_vertex(self) -> tuple[str, int] | None:
         return self._selected
@@ -308,6 +315,14 @@ class CanvasView(QGraphicsView):
                 node.setVisible(self._editable)
                 self._scene.addItem(node)
                 self._nodes.append(node)
+        if self._drawing:
+            self._rubber = QGraphicsLineItem()
+            self._rubber.setPen(_DRAFT_PEN)
+            self._rubber.setZValue(-1)
+            self._scene.addItem(self._rubber)
+            anchor = self._last_vertex()
+            if anchor is not None:
+                self._rubber.setLine(anchor.x, -anchor.y, anchor.x, -anchor.y)
         self._paint_selection()
 
     def _paint_selection(self) -> None:
@@ -328,6 +343,15 @@ class CanvasView(QGraphicsView):
             scene_pos = self.mapToScene(event.position().toPoint())
             node = self._node_at(scene_pos)
             if node is not None:
+                if (
+                    self.is_drawing()
+                    and node.contour == OUTER
+                    and node.index == 0
+                    and len(self._section.outer.points) >= 3
+                ):
+                    self.close_contour()
+                    event.accept()
+                    return
                 self.select_vertex(node.contour, node.index)
                 self._drag = (
                     node.contour,
@@ -341,9 +365,6 @@ class CanvasView(QGraphicsView):
             if not self.is_drawing():
                 self.clear_selection()
                 self.begin_drawing()
-                self._rubber = QGraphicsLineItem()
-                self._rubber.setPen(_DRAFT_PEN)
-                self._scene.addItem(self._rubber)
             point, _ = self.snapped_point(scene_pos)
             self.add_vertex(point.x, point.y)
             event.accept()
@@ -381,6 +402,13 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self.is_drawing() and event.button() == Qt.MouseButton.LeftButton:
+            self.close_contour()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
         key = event.key()

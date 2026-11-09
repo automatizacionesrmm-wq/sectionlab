@@ -235,3 +235,34 @@ def test_fit_shows_the_whole_section(canvas: CanvasView) -> None:
     visible = canvas.mapToScene(canvas.viewport().rect()).boundingRect()
     assert visible.contains(QPointF(0, 0))
     assert visible.contains(QPointF(100, -100))
+
+
+def _viewport_point(canvas: CanvasView, x: float, y: float) -> tuple[int, int]:
+    point = canvas.mapFromScene(QPointF(x, -y))
+    return point.x(), point.y()
+
+
+def test_the_draft_line_survives_more_vertices(canvas: CanvasView, qtbot) -> None:
+    canvas.begin_drawing()
+    for x, y in ((0, 0), (100, 0), (100, 100)):
+        px, py = _viewport_point(canvas, x, y)
+        qtbot.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=type(canvas.viewport().rect().topLeft())(px, py))
+    qtbot.mouseMove(canvas.viewport(), pos=type(canvas.viewport().rect().topLeft())(*_viewport_point(canvas, 0, 100)))
+    draft = canvas.draft_line()
+    assert draft is not None, "la línea guía desaparece después del segundo clic"
+    last = canvas.section().outer.points[-1]
+    assert draft.line().p1().x() == pytest.approx(last.x)
+    assert draft.line().p1().y() == pytest.approx(-last.y)
+
+
+def test_clicking_the_first_vertex_closes_the_polyline(canvas: CanvasView, qtbot) -> None:
+    canvas.begin_drawing()
+    for x, y in ((0, 0), (100, 0), (100, 100)):
+        px, py = _viewport_point(canvas, x, y)
+        qtbot.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=type(canvas.viewport().rect().topLeft())(px, py))
+    first = canvas.section().outer.points[0]
+    qtbot.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=type(canvas.viewport().rect().topLeft())(*_viewport_point(canvas, first.x, first.y)))
+    assert canvas.is_drawing() is False
+    assert canvas.section().outer.closed is True
+    assert len(canvas.section().outer.points) == 3
+    assert canvas.draft_line() is None
