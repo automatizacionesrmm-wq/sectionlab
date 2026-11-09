@@ -68,7 +68,8 @@ PDF/PNG reports, **DXF import/export**.
 - **UI**: PySide6 + Qt Widgets + QGraphicsView/QGraphicsScene (custom canvas)
 - **Geometry**: shapely
 - **Solver**: sectionproperties (unit-agnostic; returns plain floats)
-- **Packaging**: PyInstaller `--onedir` → ZIP; Inno Setup installer later
+- **Packaging**: PyInstaller `--onedir` for the runtime, Inno Setup for the installer, and a
+  separate code archive so updates are kilobytes instead of megabytes
 
 ## Development
 
@@ -87,13 +88,42 @@ not committed.
 
 ## Windows packaging
 
+A release is three files, because the runtime and the application change at different speeds:
+
+| Artifact | Size | Changes when |
+| --- | --- | --- |
+| `SectionLab-<version>-setup.exe` | ~45 MB | a dependency or Python itself changes |
+| `SectionLab-<version>-windows.zip` | ~108 MB | never useful on its own: the portable copy of the same folder |
+| `SectionLab-<version>-code.zip` | ~60 kB | the application code changes, which is almost always |
+
+The setup installs under the user profile (no administrator rights), and running a newer setup
+upgrades the previous installation in place: there is no folder to decompress and the saved
+preferences survive.
+
+### Updating without downloading the bundle again
+
+The frozen runtime — CPython, Qt, scipy, numpy, shapely — lives in `_internal/` and is
+untouched by a code change. The application package is deliberately **not** frozen:
+`SectionLab.exe` puts `app\` at the front of `sys.path` and imports `sectionlab` from there
+([`packaging/launcher.py`](packaging/launcher.py); the spec excludes `"sectionlab"`).
+
+So the quick loop after a change is:
+
+1. Download `SectionLab-<version>-code.zip` from the newest green run (~60 kB).
+2. Extract it into `app\` of the installation, replacing the `sectionlab` folder.
+3. Start `SectionLab.exe`.
+
+The installer is only needed when the runtime changes (a new dependency, a new Python version).
+[`tools/assemble_app.py`](tools/assemble_app.py) is what copies the package beside the frozen
+executable and writes that archive, locally and in CI.
+
 ### Download a ready-made build (no toolchain needed)
 
 Every push to `main` builds the bundle on a Windows runner:
 [`.github/workflows/windows-build.yml`](.github/workflows/windows-build.yml). Open the
 **Actions** tab, pick the newest `windows-build` run and download the `SectionLab-windows`
-artifact: a ZIP with `SectionLab.exe` that needs no Python. The run fails if the frozen bundle
-does not pass `--self-test`, so a green artifact is a working build.
+artifact, which holds the three files above. The run fails if the frozen bundle does not pass
+`--self-test`, so a green artifact is a working build.
 
 ### Build it yourself
 
@@ -102,13 +132,16 @@ tools\build_windows.ps1
 ```
 
 The script installs the `build` extra, runs PyInstaller with
-[`packaging/sectionlab.spec`](packaging/sectionlab.spec) and zips the onedir output into
-`dist/SectionLab-<version>-windows.zip`. `dist/SectionLab/SectionLab.exe` runs without a
-console window and needs no Python on the target machine. GitHub Releases is the intended
-distribution channel; there is no code signing.
+[`packaging/sectionlab.spec`](packaging/sectionlab.spec), calls `tools/assemble_app.py`, zips
+the folder and — when Inno Setup 6 is installed — compiles
+[`packaging/sectionlab.iss`](packaging/sectionlab.iss). Without Inno Setup it warns and skips
+the installer. `dist/SectionLab/SectionLab.exe` runs without a console window and needs no
+Python on the target machine. GitHub Releases is the intended distribution channel; there is no
+code signing, so Windows shows the SmartScreen warning until you choose "More info → Run
+anyway".
 
-PyInstaller cannot cross-compile, so the Windows ZIP must be built on Windows. The same spec
-builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
+PyInstaller cannot cross-compile, so the Windows artifacts must be built on Windows. The same
+spec builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
 
 ```bash
 dist/SectionLab/SectionLab --version     # SectionLab 0.1.0
@@ -116,12 +149,10 @@ dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, print
 ```
 
 The Windows executable has no console, so `--self-test` shows its result in a dialog instead of
-printing it. That is the quickest way to confirm a downloaded ZIP actually works on a machine
-without Python.
-
-The bundle is large (about 370 MB unpacked) because it ships Qt, numpy/scipy and the
-matplotlib that `sectionproperties` imports; the plotting extras and notebook dependencies
-are excluded in the spec.
+printing it. That is the quickest way to confirm a downloaded bundle actually works on a machine
+without Python. The bundle is large (about 370 MB unpacked) because it ships Qt, numpy/scipy and
+the matplotlib that `sectionproperties` imports; the plotting extras and the notebook
+dependencies are excluded in the spec.
 
 ## Status
 

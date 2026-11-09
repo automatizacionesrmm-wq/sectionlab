@@ -10,6 +10,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "tools/build_windows.ps1"
+      - "tools/assemble_app.py"
       - ".github/workflows/windows-build.yml"
 
 jobs:
@@ -31,6 +32,11 @@ jobs:
       - name: Build the onedir bundle
         run: uv run pyinstaller --noconfirm --clean packaging/sectionlab.spec
 
+      # The freeze holds the runtime; the application code must sit beside the executable
+      # before the bundle can start, so this runs before the self-test gate.
+      - name: Assemble the application code
+        run: uv run python tools/assemble_app.py
+
       - name: Verify the frozen solver
         shell: pwsh
         run: |
@@ -50,8 +56,25 @@ jobs:
           Compress-Archive -Path "dist/SectionLab/*" -DestinationPath "dist/SectionLab-$version-windows.zip" -Force
           Get-ChildItem dist | Select-Object Name, Length
 
+      # windows-latest ships Inno Setup 6, so an update is a setup that upgrades in place
+      # instead of a folder to decompress.
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = (uv run python -c "import sectionlab; print(sectionlab.__version__)").Trim()
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup not found at $iscc" }
+          & $iscc "/DAppVersion=$version" "packaging\sectionlab.iss"
+          if (-not (Test-Path "dist/SectionLab-$version-setup.exe")) { throw "The installer was not produced" }
+          Get-ChildItem dist | Select-Object Name, Length
+
       - uses: actions/upload-artifact@v4
         with:
           name: SectionLab-windows
-          path: dist/SectionLab-*-windows.zip
+          # The code archive goes with it: it is the only file an update of the
+          # application needs, and it is two orders of magnitude smaller than the bundle.
+          path: |
+            dist/SectionLab-*-windows.zip
+            dist/SectionLab-*-code.zip
+            dist/SectionLab-*-setup.exe
           retention-days: 30

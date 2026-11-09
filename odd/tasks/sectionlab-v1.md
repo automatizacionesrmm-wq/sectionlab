@@ -83,6 +83,16 @@ observations 3024–3036 (session `manual-save-sectionlab`).
   degrees, positive counter-clockwise from +x; contours normalized to counter-clockwise
   winding before calculation; closure and duplicate-point tolerance `1e-6 mm` absolute.
 
+- **S20 Update delivery.** The frozen runtime and the application code ship separately so a
+  code change never re-downloads the runtime. `SectionLab.exe` freezes only CPython, Qt,
+  scipy, numpy, shapely and sectionproperties; `sectionlab` is excluded from the analysis and
+  loaded from `app\sectionlab` beside the executable, delivered as
+  `SectionLab-<version>-code.zip` (~60 kB). An Inno Setup installer
+  (`SectionLab-<version>-setup.exe`) installs under the user profile without administrator
+  rights and upgrades in place; the portable `SectionLab-<version>-windows.zip` remains
+  available. An automatic update check is out of scope while the repository is private,
+  because an anonymous download needs a public feed.
+
 ## Derived implementation decisions (architect, not user requirements)
 
 - **D1 Curved templates are exact.** `circle` and `pipe` are calculated from closed-form
@@ -233,6 +243,7 @@ def load(path: str | Path) -> tuple[Section, Unit]
 | T11 | S2, S3, S16 | inline | Settings dialog: active unit and visible decimals | 282136b |
 | T12 | S16 | inline | Centralized Spanish UI strings; English code and logs | c93506f |
 | T13 | S18 | inline | PyInstaller onedir spec, build script, ZIP smoke test | see Log |
+| T14 | S20 | inline | Split the freeze from the application code, code archive, Inno Setup installer, CI artifacts | see Log |
 
 ## Log
 
@@ -276,3 +287,19 @@ def load(path: str | Path) -> tuple[Section, Unit]
   on apply. Guarded by `tests/test_settings_ui.py`.
 - **L8** `tools/dev.sh` exists because this Linux host lacks `libEGL.so.1`; it vendors the
   runtime into `.devlibs/` (gitignored) and forces `QT_QPA_PLATFORM=offscreen` for tests.
+- **L12** User, verbatim: «lo que mas demora es descargar eso pero si ya las librerias las
+  tengo porque descargarlas una y otra vez si son las mismas como puedo logar hacer eso para
+  actualizar cada que hago un cambio solo acttualizo y no tengo que bajar y descomprimir todo
+  de nuevo». Requirement S20: the runtime is frozen once and the application ships beside it.
+  `tools/assemble_app.py` copies `src/sectionlab` to `dist/SectionLab/app` and writes
+  `SectionLab-<version>-code.zip`; `packaging/launcher.py` puts `app` first on `sys.path`;
+  the spec excludes `"sectionlab"`. Because the analyser can no longer follow the application
+  imports, `launcher.runtime_dependencies()` names the frozen stack (PySide6 QtCore/QtGui/
+  QtWidgets, shapely.geometry, sectionproperties.analysis, sectionproperties.pre.geometry,
+  numpy), and `test_the_launcher_names_every_third_party_module_the_application_imports`
+  fails when a new import in `src/` is not named there. The first frozen build proved the
+  drift matters: without `sectionproperties.analysis` the executable started and then failed
+  with `ModuleNotFoundError`. Verified on Linux: frozen `--self-test` exit 0, `app` 200 kB,
+  `_internal` 280 MB. The installer is `packaging/sectionlab.iss` (stable `AppId`,
+  `PrivilegesRequired=lowest`, Spanish and English), compiled by the workflow on
+  `windows-latest`, so an update is a setup that upgrades in place.

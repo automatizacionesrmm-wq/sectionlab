@@ -1,4 +1,4 @@
-"""Entry point and packaging artifacts (spec S17)."""
+"""Entry point, packaging artifacts and update delivery (spec S17, S20)."""
 
 from __future__ import annotations
 
@@ -67,11 +67,95 @@ def test_module_entry_point_runs() -> None:
 
 def test_spec_builds_a_windowed_onedir_bundle() -> None:
     spec = (ROOT / "packaging" / "sectionlab.spec").read_text(encoding="utf-8")
-    assert 'src" / "sectionlab" / "__main__.py"' in spec
     assert 'name="SectionLab"' in spec
     assert "COLLECT(" in spec
     assert "console=False" in spec
     assert '"matplotlib"' in spec
+
+
+def test_spec_freezes_the_runtime_but_not_the_application() -> None:
+    spec = (ROOT / "packaging" / "sectionlab.spec").read_text(encoding="utf-8")
+    analysis = spec.split("excludes=[", 1)[1].split("]", 1)[0]
+    assert '"sectionlab"' in analysis
+    assert 'LAUNCHER' in spec.split("Analysis(", 1)[1]
+
+
+def test_launcher_runs_the_code_beside_the_executable(tmp_path, monkeypatch) -> None:
+    from importlib import util
+
+    spec = util.spec_from_file_location("sectionlab_launcher", ROOT / "packaging" / "launcher.py")
+    launcher = util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+
+    executable = tmp_path / "SectionLab.exe"
+    executable.write_text("", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(executable))
+
+    assert launcher.code_root() == tmp_path / "app"
+
+
+def test_the_launcher_names_every_third_party_module_the_application_imports() -> None:
+    """Drift guard: a new import in `src/` must reach the frozen runtime, not just `app/`."""
+    launcher = (ROOT / "packaging" / "launcher.py").read_text(encoding="utf-8")
+    pattern = re.compile(
+        r"^\s*(?:from|import)\s+(PySide6|shapely|sectionproperties|scipy|numpy|matplotlib)[\w.]*",
+        re.MULTILINE,
+    )
+    imported: set[str] = set()
+    for path in (ROOT / "src" / "sectionlab").rglob("*.py"):
+        for match in pattern.finditer(path.read_text(encoding="utf-8")):
+            module = match.group(0).split()[-1] if " import " not in match.group(0) else match.group(0).split()[1]
+            imported.add(module.split(" as ")[0])
+
+    missing = sorted(module for module in imported if f"import {module}" not in launcher)
+    assert missing == []
+
+
+def test_launcher_points_at_the_source_tree_when_not_frozen() -> None:
+    from importlib import util
+
+    spec = util.spec_from_file_location("sectionlab_launcher", ROOT / "packaging" / "launcher.py")
+    launcher = util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+
+    assert launcher.code_root() == ROOT / "src"
+
+
+def test_the_code_archive_ships_the_package_alone(tmp_path) -> None:
+    from importlib import util
+
+    spec = util.spec_from_file_location("sectionlab_assemble", ROOT / "tools" / "assemble_app.py")
+    module = util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assemble, PACKAGE = module.assemble, module.PACKAGE
+
+    bundle = tmp_path / "dist" / "SectionLab"
+    bundle.mkdir(parents=True)
+    (bundle / "SectionLab.exe").write_text("", encoding="utf-8")
+
+    target, archive = assemble(bundle, PACKAGE, "9.9.9")
+
+    assert target == bundle / "app" / "sectionlab"
+    assert (target / "__main__.py").is_file()
+    assert not list(target.rglob("__pycache__"))
+    assert archive.name == "SectionLab-9.9.9-code.zip"
+
+    import zipfile
+
+    with zipfile.ZipFile(archive) as code:
+        names = code.namelist()
+    assert "sectionlab/__main__.py" in names
+    assert all(name.startswith("sectionlab/") for name in names)
+    assert not any(name.endswith(".pyc") for name in names)
+
+
+def test_the_installer_upgrades_in_place_under_the_user_profile() -> None:
+    script = (ROOT / "packaging" / "sectionlab.iss").read_text(encoding="utf-8")
+    assert "AppId={{7C4B2F19" in script
+    assert "PrivilegesRequired=lowest" in script
+    assert 'Source: "{#AppSourceDir}\\*"; DestDir: "{app}"' in script
+    assert 'Filename: "{app}\\{#AppExeName}"' in script
 
 
 def test_windows_build_script_produces_a_zip() -> None:
@@ -81,6 +165,23 @@ def test_windows_build_script_produces_a_zip() -> None:
     assert "windows.zip" in script
 
 
+def test_windows_build_script_ships_the_code_and_the_installer() -> None:
+    script = (ROOT / "tools" / "build_windows.ps1").read_text(encoding="utf-8")
+    pyinstaller = script.index("packaging/sectionlab.spec")
+    assert script.index("tools/assemble_app.py") > pyinstaller
+    assert "sectionlab.iss" in script
+
+
+def test_the_workflow_publishes_the_code_archive_and_the_installer() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "windows-build.yml").read_text(encoding="utf-8")
+    steps = workflow.split("jobs:", 1)[1]
+    assert steps.index("packaging/sectionlab.spec") < steps.index("tools/assemble_app.py")
+    # The bundle cannot start without its code, so the self-test runs after assembling it.
+    assert steps.index("tools/assemble_app.py") < steps.index("--self-test")
+    assert "code.zip" in workflow
+    assert "setup.exe" in workflow
+
+
 def test_build_extra_installs_pyinstaller() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     block = re.search(r"build = \[(.*?)\]", pyproject, re.DOTALL)
@@ -88,6 +189,9 @@ def test_build_extra_installs_pyinstaller() -> None:
     assert "pyinstaller" in block.group(1).lower()
 
 
-@pytest.mark.parametrize("name", ["packaging/sectionlab.spec", "tools/build_windows.ps1"])
+@pytest.mark.parametrize(
+    "name",
+    ["packaging/sectionlab.spec", "packaging/sectionlab.iss", "packaging/launcher.py", "tools/assemble_app.py", "tools/build_windows.ps1"],
+)
 def test_packaging_files_are_tracked(name: str) -> None:
     assert (ROOT / name).is_file()

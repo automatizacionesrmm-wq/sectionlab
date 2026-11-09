@@ -9,13 +9,17 @@ is smoke tested during development.
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent
+# The freeze holds the runtime, not the application: `sectionlab` is excluded here and
+# shipped as `app/sectionlab` beside the executable, so an update replaces a few dozen
+# kilobytes instead of the whole bundle. packaging/launcher.py bridges the two.
+LAUNCHER = ROOT / "packaging" / "launcher.py"
 # sectionproperties imports matplotlib (and therefore Pillow) from its analysis module, so
 # both ship even though SectionLab never plots. Everything else that sectionproperties only
 # needs for notebooks is excluded, together with the GUI backends no desktop build uses.
 HIDDEN_IMPORTS: list[str] = ["matplotlib"]
 
 analysis = Analysis(
-    [str(ROOT / "src" / "sectionlab" / "__main__.py")],
+    [str(LAUNCHER)],
     pathex=[str(ROOT / "src")],
     binaries=[],
     datas=[],
@@ -24,6 +28,7 @@ analysis = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        "sectionlab",
         "pytest",
         "pytest_qt",
         "PySide6.QtWebEngineCore",
