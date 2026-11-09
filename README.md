@@ -40,9 +40,10 @@ PDF/PNG reports, **DXF import/export**.
 
 1. Pick a template on the right and type its parameters in the active unit: the section is
    drawn as soon as the template or a parameter changes, so **Aplicar** is only a convenience.
-   Or press **Nueva geometría libre** and draw with the mouse: click to add a vertex, click the
-   first vertex or press `Enter` to close the contour, `Esc` to cancel. `F8` toggles ortho mode;
-   snaps appear for endpoints, intersections, midpoints, centres and perpendicular feet.
+   Or press **Nueva geometría libre** and draw with the mouse: click to add a vertex; the first
+   vertex turns green as the closing target, so clicking it (or the right button, or `Enter`)
+   closes the contour, and `Esc` cancels. `F8` toggles ortho mode; snaps appear for endpoints,
+   intersections, midpoints, centres and perpendicular feet.
 2. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtGui import QColor, QMouseEvent, QWheelEvent
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
@@ -17,6 +17,7 @@ from sectionlab.ui.canvas import (
     MIN_SCALE,
     OUTER,
     CanvasView,
+    current_palette,
 )
 from sectionlab.ui.theme import Theme, tokens
 
@@ -26,6 +27,7 @@ def canvas(qtbot) -> CanvasView:
     view = CanvasView()
     qtbot.addWidget(view)
     view.resize(600, 400)
+    view.apply_palette(tokens(Theme.DARK))
     return view
 
 
@@ -409,3 +411,76 @@ def test_the_navigation_hint_names_the_mouse_gestures() -> None:
 
     hint = strings.label_for("hint_navigate")
     assert "Rueda" in hint and "botón central" in hint
+
+
+def drawing_canvas(canvas: CanvasView) -> CanvasView:
+    canvas.begin_drawing()
+    for x, y in [(0, 0), (100, 0), (100, 100), (0, 100)]:
+        canvas.add_vertex(float(x), float(y))
+    return canvas
+
+
+def left_press(canvas: CanvasView, x: float, y: float) -> None:
+    position = canvas.mapFromScene(QPointF(x, -y))
+    point = QPointF(position)
+    canvas.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            point,
+            point,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+
+def right_press(canvas: CanvasView) -> None:
+    point = QPointF(canvas.viewport().rect().center())
+    canvas.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            point,
+            point,
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+
+def test_a_click_near_the_first_vertex_closes_the_contour(canvas: CanvasView) -> None:
+    canvas = drawing_canvas(canvas)
+    offset = 10.0 / canvas.pixels_per_mm()
+    left_press(canvas, offset, 0.0)
+    assert not canvas.is_drawing()
+    assert canvas.section().outer.closed
+
+
+def test_a_click_far_from_the_first_vertex_adds_a_vertex(canvas: CanvasView) -> None:
+    canvas = drawing_canvas(canvas)
+    left_press(canvas, 60.0, 140.0)
+    assert canvas.is_drawing()
+    assert len(canvas.section().outer.points) == 5
+
+
+def test_the_first_vertex_is_highlighted_as_the_closing_target(canvas: CanvasView) -> None:
+    canvas = drawing_canvas(canvas)
+    closing = QColor(current_palette()["ok"])
+    assert canvas._nodes[0].brush().color() == closing
+    assert canvas._nodes[1].brush().color() != closing
+
+
+def test_the_context_button_closes_the_contour(canvas: CanvasView) -> None:
+    canvas = drawing_canvas(canvas)
+    right_press(canvas)
+    assert canvas.section().outer.closed
+    assert not canvas.is_drawing()
+
+
+def test_the_context_button_cancels_a_short_polyline(canvas: CanvasView) -> None:
+    canvas.begin_drawing()
+    canvas.add_vertex(0.0, 0.0)
+    right_press(canvas)
+    assert not canvas.is_drawing()
+    assert canvas.section().outer.points == []

@@ -150,7 +150,9 @@ UI: dict[str, str] = {
     "applied": "Plantilla aplicada",
     "calculated": "Resultados actualizados",
     "saved": "Proyecto guardado",
-    "free_started": "Geometría libre: haz clic para añadir vértices",
+    "free_started": (
+        "Geometría libre: clic para añadir vértices · clic en el primero, botón derecho o Enter para cerrar"
+    ),
     "short_calculate": "Calcular",
     "short_open": "Abrir",
     "short_save": "Guardar",

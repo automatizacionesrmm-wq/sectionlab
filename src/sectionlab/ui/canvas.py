@@ -40,6 +40,8 @@ INNER = "inner"
 SNAP_TOLERANCE_PX = 8.0
 NODE_RADIUS_PX = 4.0
 NODE_HIT_PX = 9.0
+# Clicking this close to the first vertex closes the polyline, like an object snap target.
+CLOSE_HIT_PX = 14.0
 ZOOM_STEP = 1.15
 MIN_SCALE = 0.01
 MAX_SCALE = 1000.0
@@ -68,7 +70,8 @@ def set_palette(palette: Mapping[str, str]) -> None:
     _DRAFT_PEN.setColor(QColor(_PALETTE["draft"]))
 
 
-def palette() -> dict[str, str]:
+def current_palette() -> dict[str, str]:
+    """The colour tokens currently in force (Qt owns the `palette` name on widgets)."""
     return dict(_PALETTE)
 
 
@@ -397,10 +400,29 @@ class CanvasView(QGraphicsView):
         self._paint_selection()
 
     def _paint_selection(self) -> None:
+        closing = (
+            self.is_drawing()
+            and len(self._section.outer.points) >= 3
+            and self._editable
+        )
         for node in self._nodes:
             selected = self._selected == (node.contour, node.index)
-            colour = _PALETTE["handle_selected"] if selected else _PALETTE["handle"]
+            if selected:
+                colour = _PALETTE["handle_selected"]
+            elif closing and node.contour == OUTER and node.index == 0:
+                colour = _PALETTE["ok"]
+            else:
+                colour = _PALETTE["handle"]
             node.setBrush(QBrush(QColor(colour)))
+
+    def closes_here(self, point: QPointF) -> bool:
+        """True when a click lands on the closing target: the first vertex of the polyline."""
+        points = self._section.outer.points
+        if not self.is_drawing() or len(points) < 3:
+            return False
+        cursor = self.mapFromScene(point)
+        first = self.mapFromScene(QPointF(points[0].x, -points[0].y))
+        return hypot(first.x() - cursor.x(), first.y() - cursor.y()) <= CLOSE_HIT_PX
 
     def _node_at(self, point: QPointF) -> _NodeItem | None:
         cursor = self.mapFromScene(point)
@@ -527,8 +549,20 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
 
+        if event.button() == Qt.MouseButton.RightButton and self.is_drawing():
+            if len(self._section.outer.points) >= 3:
+                self.close_contour()
+            else:
+                self.cancel_drawing()
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.LeftButton and self._editable:
             scene_pos = self.mapToScene(event.position().toPoint())
+            if self.closes_here(scene_pos):
+                self.close_contour()
+                event.accept()
+                return
             node = self._node_at(scene_pos)
             if node is not None:
                 if (

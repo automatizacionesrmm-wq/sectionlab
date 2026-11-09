@@ -90,3 +90,15 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   drawing, a middle double click fits the section, and toolbar Acercar/Alejar zoom about the
   viewport centre. A fixed large world rect keeps panning free of the content bounds, and
   `S3` stays satisfied because the navigation is part of the drafting surface.
+- **L11** User, verbatim: «cuando quiero cerrar la figura aqui no puedo … toco el vertice y se
+  abren las propiedades pero no se pone la linea la idea es que sea como en autocad que yo
+  pueda unir las lineas para eso eran los osnap». Two causes: the Windows ZIP the user had was
+  built *before* `efaf29c` (the closing fix), and even with it the only closing spot was a
+  9 px halo on the first vertex with no visual cue. Repair: the first vertex is painted with
+  the `ok` token as the closing target while drawing, a click within `CLOSE_HIT_PX` (14 px) of
+  it closes (drawn anyway at snap tolerance 8 px), the right button closes when there are
+  three or more vertices and cancels below that, and the status hint names every way to close.
+  Tests: `test_a_click_near_the_first_vertex_closes_the_contour`,
+  `test_the_context_button_closes_the_contour`,
+  `test_the_context_button_cancels_a_short_polyline`,
+  `test_the_first_vertex_is_highlighted_as_the_closing_target`.
