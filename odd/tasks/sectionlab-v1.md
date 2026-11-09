@@ -307,3 +307,5 @@ def load(path: str | Path) -> tuple[Section, Unit]
   portable zip 114 291 713 bytes, installer 75 292 028 bytes (lzma2 beats the zip by 34 %),
   published as three artifacts — `SectionLab-installer`, `SectionLab-code`,
   `SectionLab-portable` — so a download fetches one file instead of a bundle of three.
+  Run 42639306349 on `011c2fa` repeated the green build with the split artifacts:
+  `SectionLab-code` 0.04 MB, `SectionLab-installer` 71.3 MB, `SectionLab-portable` 108.55 MB.
