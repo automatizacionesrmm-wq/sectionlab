@@ -86,8 +86,9 @@ T4. Template sections become free geometry, the focused parameter names its dime
     editable geometry`
 T5. Table and drawing selection sync, movable inspectors with real drag and a header menu, new
     default arrangement. commit: `ui: arrange and move the inspectors`
-T6. Documentation, README, full verification and the 0.1.2 build. commit: `docs: describe the
-    dimensioned canvas`
+T6. Documentation, README, full verification and the 0.1.2 build. commits: `docs: describe the
+    dimensioned canvas`, `ui: give the dimension editor and the dimension lines their own
+    colours`.
 
 ## Log
 
@@ -119,3 +120,15 @@ L4. User, verbatim: «continua acuerdate tambie de verificar que la unidad de lo
     converted values to the active unit but kept the millimetre symbol, so `20000 mm²` showed
     as `200` next to `mm²`. Fixed in T1's commit and pinned by
     `test_the_unit_column_follows_the_active_unit`.
+
+L5. Verification and delivery of 0.1.2. `tools/dev.sh uv run pytest tests/` → **395 passed**. Each
+    drawing feature was rendered offscreen in both themes before the build (dimensions, centroid
+    and its axes, selected vertex, inline editor, the three inspector arrangements); the render
+    test exists because a painter error is invisible to state assertions and one such error
+    (`NameError: sin`) was only caught this way.
+    CI run `42660136093` on `7d2c432` (windows-latest) green: installer 75 300 080 B, portable
+    114 301 645 B, code archive 54 449 B. Release published: `v0.1.2` at
+    `7d2c4327ac01bbecc78a657986ee76a9238567b7`
+    (https://github.com/automatizacionesrmm-wq/sectionlab/releases/tag/v0.1.2) with the three
+    assets. The first green build (`42656677465`, `392efbd`) was not published: two cosmetic
+    commits landed after it, and a release must match its tag.
