@@ -28,9 +28,23 @@ truth for scope, behavior and conventions.
 
 Torsion constant J, warping constant, shear centre, shear areas, plastic section moduli,
 plastic centroid, shape factor, composite/material properties, stress visualisation,
-reference-axis tool, user-created holes, hatch, multi-section documents,
-template→free-geometry conversion, cut/paste/trim, numeric length/angle drawing entry,
-PDF/PNG reports, **DXF import/export**.
+reference-axis tool, user-created holes, hatch, multi-section documents, cut/paste/trim,
+numeric length/angle drawing entry, PDF/PNG reports, **DXF import/export**.
+
+## Usage
+
+1. Pick a template on the right, type its parameters in the active unit and press
+   **Aplicar**, or press **Geometría libre** and draw with the mouse: click to add a vertex,
+   `Enter` to close the contour, `Esc` to cancel. `F8` toggles ortho mode; snaps appear for
+   endpoints, intersections, midpoints, centres and perpendicular feet.
+2. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
+   Spanish and name the offending geometry; saving an invalid drawing is still allowed.
+3. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
+   edits are undoable with `Ctrl+Z`.
+4. **Configuración → Preferencias** changes the active unit and the displayed decimals.
+   Changing the unit only converts the display; the geometry is never recomputed.
+5. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
+   precision (`repr`), independent of the visible decimals.
 
 ## Stack
 
@@ -54,6 +68,30 @@ tools/dev.sh uv run sectionlab
 requires; on Windows call `uv run` directly. The vendored copy lives in `.devlibs/`, which is
 not committed.
 
+## Windows packaging
+
+```powershell
+tools\build_windows.ps1
+```
+
+The script installs the `build` extra, runs PyInstaller with
+[`packaging/sectionlab.spec`](packaging/sectionlab.spec) and zips the onedir output into
+`dist/SectionLab-<version>-windows.zip`. `dist/SectionLab/SectionLab.exe` runs without a
+console window and needs no Python on the target machine. GitHub Releases is the intended
+distribution channel; there is no code signing.
+
+PyInstaller cannot cross-compile, so the Windows ZIP must be built on Windows. The same spec
+builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
+
+```bash
+dist/SectionLab/SectionLab --version     # SectionLab 0.1.0
+dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, prints area and Ix
+```
+
+The bundle is large (about 370 MB unpacked) because it ships Qt, numpy/scipy and the
+matplotlib that `sectionproperties` imports; the plotting extras and notebook dependencies
+are excluded in the spec.
+
 ## Status
 
-Project scaffold in place; application code under construction.
+v1 feature complete and tested (`tools/dev.sh uv run pytest`), packaged with PyInstaller.

@@ -107,6 +107,13 @@ observations 3024–3036 (session `manual-save-sectionlab`).
 - **D8 Reported sign conventions.** `Ixy = ∫xy dA`, so an L angle in the first quadrant reports
   a negative product of inertia. The principal angle is the solver's principal-axis angle
   folded into `(-90°, 90°]`, counter-clockwise from `+x`.
+- **D9 Packaging.** One spec file (`packaging/sectionlab.spec`) drives the onedir build and
+  `tools/build_windows.ps1` wraps it for Windows (install build extra, build, zip into
+  `dist/SectionLab-<version>-windows.zip`). sectionproperties' analysis modules resolve
+  statically, so the spec declares no hidden imports and excludes the plotting extras
+  (matplotlib, PIL, IPython, pandas) to keep the ZIP small. The frozen bundle is smoke tested
+  by `SectionLab.exe --self-test`, which runs one rectangle calculation and prints its area
+  without opening a window.
 
 ## Core API contract
 
@@ -213,19 +220,19 @@ def load(path: str | Path) -> tuple[Section, Unit]
 
 | ID | Specs | Route | Work | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | S1, S18 | inline | Repo scaffold: git, uv project, src layout, pytest config, .gitignore, README realignment | pending |
-| T2 | S2, S3, S4, S19 | worker | Units + precision core (mm internal, conversions, formatting, CSV precision) with tests | pending |
-| T3 | S5, S9, S13, S19 | worker | Section model + contour validation (closure, <3 vertices, duplicates, self-intersection, zero area) | pending |
-| T4 | S1, S11, S19 | worker | sectionproperties integration returning every S11 property about centroidal axes, verified against analytical values | pending |
-| T5 | S10 | worker | Eleven parametric template generators with defaults and parameter rebuild | pending |
-| T6 | S14 | worker | `.sectionlab` JSON persistence with schema version | pending |
-| T7 | S15, S3, S4 | worker | Results table: display, clipboard copy, full-precision CSV | pending |
-| T8 | S5, S7, S8, S17 | worker | Canvas: segment drawing, six snaps, vertex move/insert/delete, undo/redo | pending |
-| T9 | S6, S17 | worker | Vertex table + typed vertex-list entry | pending |
-| T10 | S13, S16 | worker | Calcular flow: always enabled, Spanish blocking messages, offending geometry highlighted | pending |
-| T11 | S2, S3, S16 | worker | Settings dialog: active unit and visible decimals | pending |
-| T12 | S16 | worker | Centralized Spanish UI strings; English code and logs | pending |
-| T13 | S18 | worker | PyInstaller onedir spec, build script, ZIP smoke test | pending |
+| T1 | S1, S18 | inline | Repo scaffold: git, uv project, src layout, pytest config, .gitignore, README realignment | a7f37db |
+| T2 | S2, S3, S4, S19 | inline | Units + precision core (mm internal, conversions, formatting, CSV precision) with tests | d3d972d |
+| T3 | S5, S9, S13, S19 | inline | Section model + contour validation (closure, <3 vertices, duplicates, self-intersection, zero area) | d3d972d |
+| T4 | S1, S11, S19 | inline | sectionproperties integration returning every S11 property about centroidal axes, verified against analytical values | 20a8b82 |
+| T5 | S10 | inline | Eleven parametric template generators with defaults and parameter rebuild | 20a8b82 |
+| T6 | S14 | inline | `.sectionlab` JSON persistence with schema version | 35ade55 |
+| T7 | S15, S3, S4 | inline | Results table: display, clipboard copy, full-precision CSV | c93506f |
+| T8 | S5, S7, S8, S17 | inline | Canvas: segment drawing, six snaps, vertex move/insert/delete, undo/redo | a0a64a1 |
+| T9 | S6, S17 | inline | Vertex table + typed vertex-list entry | f55b800 |
+| T10 | S13, S16 | inline | Calcular flow: always enabled, Spanish blocking messages, offending geometry highlighted | 282136b |
+| T11 | S2, S3, S16 | inline | Settings dialog: active unit and visible decimals | 282136b |
+| T12 | S16 | inline | Centralized Spanish UI strings; English code and logs | c93506f |
+| T13 | S18 | inline | PyInstaller onedir spec, build script, ZIP smoke test | see Log |
 
 ## Log
 
@@ -241,3 +248,21 @@ def load(path: str | Path) -> tuple[Section, Unit]
   a git repository; only `README.md`, `.atl/skill-registry.md`, `.atl/.gitignore`,
   `.atl/.skill-registry.cache.json` and an empty `.pi/` existed. The README advertised DXF
   in/out and v2 properties as current scope; both were corrected under L2.
+- **L5** Delegation unavailable: the configured subagent model `C1-Pro/gemini-3.8-flash-high`
+  does not resolve in the active profile, so T2–T13 run inline with test-first discipline.
+- **L6** Implementation record (all verified with `tools/dev.sh uv run pytest tests/ -q`, 271
+  tests green; 276 at close): T2 `core/units.py`, `core/precision.py`; T3 `core/model.py`,
+  `core/validation.py`; T4 `core/engine.py`; T5 `core/templates.py`; T6 `core/document.py`;
+  T7 `ui/results.py`; T8 `core/snap.py`, `ui/canvas.py`; T9 `ui/vertex_table.py`; T10/T11
+  `ui/app.py`, `ui/settings.py`, `ui/template_panel.py`; T12 `ui/strings.py`.
+- **L9** Packaging evidence (T13): `uv run pyinstaller --noconfirm --clean packaging/sectionlab.spec`
+  builds a working onedir bundle on Linux (`dist/SectionLab`, 370 MB, 211 MB zipped), and the
+  frozen binary passes `--self-test` (`area=20000.000000`, `ix=66666666.666668`). The GUI in
+  the bundle also starts offscreen once the host `libEGL` is injected, the same host limitation
+  `tools/dev.sh` works around. PyInstaller cannot cross-compile, so the actual Windows ZIP has
+  to be produced on Windows by `tools\build_windows.ps1`.
+- **L7** Template parameter form keeps the millimetre value it was built from, so switching
+  mm → cm → in → mm on the form never accumulates rounding drift; typed values still convert
+  on apply. Guarded by `tests/test_settings_ui.py`.
+- **L8** `tools/dev.sh` exists because this Linux host lacks `libEGL.so.1`; it vendors the
+  runtime into `.devlibs/` (gitignored) and forces `QT_QPA_PLATFORM=offscreen` for tests.

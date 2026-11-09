@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
     def _build_actions(self) -> None:
-        toolbar = self.addToolBar("main")
+        toolbar = self.addToolBar(strings.label_for("main_toolbar"))
         toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
 
@@ -172,42 +172,42 @@ class MainWindow(QMainWindow):
         self.action_ortho.toggled.connect(self.canvas.set_ortho)
         self.canvas.set_ortho(False)
 
-        self.action_zoom_in = QAction("Zoom +", self)
+        self.action_zoom_in = QAction(strings.label_for("zoom_in"), self)
         self.action_zoom_in.setShortcut(QKeySequence("Ctrl++"))
         self.action_zoom_in.triggered.connect(self.canvas.zoom_in)
-        self.action_zoom_out = QAction("Zoom -", self)
+        self.action_zoom_out = QAction(strings.label_for("zoom_out"), self)
         self.action_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
         self.action_zoom_out.triggered.connect(self.canvas.zoom_out)
-        self.action_fit = QAction("Ajustar", self)
+        self.action_fit = QAction(strings.label_for("zoom_fit"), self)
         self.action_fit.setShortcut(QKeySequence("Ctrl+0"))
         self.action_fit.triggered.connect(self.canvas.fit_to_content)
 
         self.action_settings = QAction(strings.label_for("settings"), self)
         self.action_settings.triggered.connect(self.open_settings_dialog)
 
-        file_menu = self.menuBar().addMenu("Archivo")
+        file_menu = self.menuBar().addMenu(strings.label_for("menu_file"))
         for action in (self.action_open, self.action_save, self.action_export):
             file_menu.addAction(action)
         file_menu.addSeparator()
-        quit_action = QAction("Salir", self)
+        quit_action = QAction(strings.label_for("quit"), self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
 
-        edit_menu = self.menuBar().addMenu("Edición")
+        edit_menu = self.menuBar().addMenu(strings.label_for("menu_edit"))
         for action in (self.action_undo, self.action_redo):
             edit_menu.addAction(action)
         edit_menu.addSeparator()
         edit_menu.addAction(self.action_insert_vertex)
         edit_menu.addAction(self.action_delete_vertex)
 
-        view_menu = self.menuBar().addMenu("Ver")
+        view_menu = self.menuBar().addMenu(strings.label_for("menu_view"))
         for action in (self.action_zoom_in, self.action_zoom_out, self.action_fit):
             view_menu.addAction(action)
         view_menu.addSeparator()
         view_menu.addAction(self.action_ortho)
 
-        settings_menu = self.menuBar().addMenu("Configuración")
+        settings_menu = self.menuBar().addMenu(strings.label_for("menu_settings"))
         settings_menu.addAction(self.action_settings)
 
         for action in (
