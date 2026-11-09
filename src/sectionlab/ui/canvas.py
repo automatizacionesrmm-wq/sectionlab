@@ -15,6 +15,7 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QFontMetricsF,
     QPainter,
     QPainterPath,
     QPen,
@@ -34,8 +35,9 @@ from PySide6.QtWidgets import (
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_value
+from sectionlab.core.sketch import SketchError, set_segment_length
 from sectionlab.core.snap import SnapKind, apply_ortho, candidates, find_snap
-from sectionlab.core.units import Unit, from_mm
+from sectionlab.core.units import Unit, from_mm, to_mm
 from sectionlab.ui import strings
 from sectionlab.ui import theme as ui_theme
 from sectionlab.ui.dimensions import Dimension, dimensions_for
@@ -104,6 +106,19 @@ class _NodeItem(QGraphicsEllipseItem):
         self.setZValue(10)
 
 
+class _DimensionEditor(QLineEdit):
+    """One-line editor for a dimension value; Escape abandons the edit."""
+
+    cancelled = Signal()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancelled.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class _ContourItem(QGraphicsPathItem):
     """The polylines and hatch-free outline of one contour."""
 
@@ -148,6 +163,9 @@ class CanvasView(QGraphicsView):
     snapChanged = Signal(str)
     vertexSelected = Signal(str, int)
     drawingChanged = Signal(bool)
+    # A refused dimension edit, carrying the English code the status bar translates (D6).
+    editRejected = Signal(str)
+    dimensionEdited = Signal(int, float)
 
     def __init__(self, parent: QGraphicsView | None = None) -> None:
         super().__init__(parent)
@@ -598,6 +616,91 @@ class CanvasView(QGraphicsView):
         second = QPointF(end.x() + normal.x() * DIM_OFFSET_PX, end.y() + normal.y() * DIM_OFFSET_PX)
         return first, second, normal
 
+    def _dimension_box(self, dimension: Dimension, metrics=None) -> QRectF:
+        """Device rectangle the dimension text occupies; also the target of a double click."""
+        if metrics is None:
+            metrics = QFontMetricsF(self.font())
+        label = self._dimension_text(dimension)
+        width = metrics.horizontalAdvance(label)
+        height = metrics.height()
+        first, second, normal = self._dimension_geometry(dimension)
+        middle = QPointF((first.x() + second.x()) / 2, (first.y() + second.y()) / 2)
+        centre = QPointF(
+            middle.x() + normal.x() * (DIM_GAP_PX + 2.0),
+            middle.y() + normal.y() * (DIM_GAP_PX + 2.0),
+        )
+        return QRectF(centre.x() - width / 2 - 3, centre.y() - height / 2 - 1, width + 6, height + 2)
+
+    def dimension_at(self, position: QPoint) -> Dimension | None:
+        """The editable dimension whose text sits under the cursor, if any (spec S3)."""
+        if not self._dims_visible or not self._editable:
+            return None
+        point = QPointF(position)
+        for dimension in self.dimensions():
+            if not dimension.editable:
+                continue
+            if self._dimension_box(dimension).adjusted(-6, -6, 6, 6).contains(point):
+                return dimension
+        return None
+
+    def apply_dimension_length(self, index: int, length_mm: float) -> bool:
+        """Make one segment measure ``length_mm`` as a single undoable edit (spec S3)."""
+        outer = self._section.outer
+        if outer is None:
+            return False
+        if not self._editable:
+            self.editRejected.emit("read_only")
+            return False
+        try:
+            points = set_segment_length(outer.points, index, length_mm)
+        except SketchError as error:
+            self.editRejected.emit(error.code)
+            return False
+        self._commit(
+            replace(self._section, outer=replace(outer, points=points)),
+            strings.label_for("undo_dimension"),
+        )
+        self.dimensionEdited.emit(index, length_mm)
+        return True
+
+    def begin_dimension_edit(self, dimension: Dimension) -> bool:
+        """Open a one-line editor over the dimension text, prefilled in the active unit."""
+        if not dimension.editable or not self._editable:
+            return False
+        self.close_dimension_editor()
+        editor = _DimensionEditor(self.viewport())
+        editor.setObjectName("dimension_editor")
+        editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        editor.setText(format_value(from_mm(dimension.value, self._unit), self._decimals))
+        editor.setGeometry(self._dimension_box(dimension).toRect().adjusted(-10, -4, 10, 4))
+        editor.returnPressed.connect(lambda: self._commit_dimension_edit(dimension, editor))
+        editor.cancelled.connect(self.close_dimension_editor)
+        editor.show()
+        editor.setFocus()
+        editor.selectAll()
+        self._dimension_editor = editor
+        return True
+
+    def close_dimension_editor(self) -> None:
+        editor = self._dimension_editor
+        self._dimension_editor = None
+        if editor is not None:
+            editor.hide()
+            editor.deleteLater()
+
+    def has_dimension_editor(self) -> bool:
+        return self._dimension_editor is not None
+
+    def _commit_dimension_edit(self, dimension: Dimension, editor: QLineEdit) -> None:
+        text = editor.text()
+        self.close_dimension_editor()
+        try:
+            value = to_mm(float(text.strip().replace(",", ".")), self._unit)
+        except ValueError:
+            self.editRejected.emit("not_a_number")
+            return
+        self.apply_dimension_length(dimension.index, value)
+
     def _draw_dimensions(self, painter: QPainter) -> None:
         """One dimension per segment, written outside the contour (spec S2)."""
         if not self._dims_visible:
@@ -620,18 +723,10 @@ class CanvasView(QGraphicsView):
                     QPointF(anchor.x() + normal.x() * DIM_GAP_PX, anchor.y() + normal.y() * DIM_GAP_PX),
                     QPointF(target.x() + normal.x() * DIM_GAP_PX, target.y() + normal.y() * DIM_GAP_PX),
                 )
-            label = self._dimension_text(dimension)
-            width = metrics.horizontalAdvance(label)
-            height = metrics.height()
-            middle = QPointF((first.x() + second.x()) / 2, (first.y() + second.y()) / 2)
-            centre = QPointF(
-                middle.x() + normal.x() * (DIM_GAP_PX + 2.0),
-                middle.y() + normal.y() * (DIM_GAP_PX + 2.0),
-            )
-            box = QRectF(centre.x() - width / 2 - 3, centre.y() - height / 2 - 1, width + 6, height + 2)
+            box = self._dimension_box(dimension, metrics)
             painter.fillRect(box, QColor(_PALETTE["canvas"]))
             painter.setPen(QPen(colour))
-            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self._dimension_text(dimension))
 
     def _draw_axes_labels(self, painter: QPainter, origin: QPoint, width: int, height: int) -> None:
         """Name the two reference axes, so the origin is unmistakable (spec S4)."""
@@ -885,6 +980,11 @@ class CanvasView(QGraphicsView):
             self.close_contour()
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton:
+            dimension = self.dimension_at(event.position().toPoint())
+            if dimension is not None and self.begin_dimension_edit(dimension):
+                event.accept()
+                return
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override

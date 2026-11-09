@@ -123,6 +123,8 @@ UI: dict[str, str] = {
     "ortho": "Ortogonal",
     "dimensions": "Cotas",
     "dimensions_tip": "Muestra la medida de cada segmento sobre el dibujo",
+    "undo_dimension": "cota",
+    "dimensions_hint": "Doble clic sobre una cota para cambiarla",
     "snap_endpoint": "Extremo",
     "snap_intersection": "Intersección",
     "snap_midpoint": "Punto medio",
@@ -205,6 +207,23 @@ def result_label(field: str) -> tuple[str, str]:
         return RESULT_LABELS[field]
     except KeyError as error:
         raise KeyError(f"unknown result field: {field}") from error
+
+
+DIMENSION_MESSAGES: dict[str, str] = {
+    "closing_segment": "El segmento de cierre no se acota: su largo depende de los demás",
+    "slanted_segment": "Solo se acota el ancho o el alto de un segmento recto",
+    "non_positive": "La cota debe ser mayor que cero",
+    "unchanged": "La cota ya tiene ese valor",
+    "out_of_range": "Ese segmento no existe en el contorno",
+    "too_few_vertices": "Hacen falta al menos tres vértices para acotar",
+    "not_a_number": "Escribe un número, por ejemplo 120.5",
+    "read_only": "Esta sección viene de una plantilla: cámbiala en sus parámetros",
+}
+
+
+def dimension_message(code: str) -> str:
+    """Spanish text for a refused dimension edit (spec S3)."""
+    return DIMENSION_MESSAGES.get(code, _GENERIC_ERROR)
 
 
 def error_message(code: str) -> str:

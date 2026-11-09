@@ -376,3 +376,25 @@ def test_every_panel_shows_the_unit_its_values_were_converted_to(window: MainWin
     assert window.vertex_table.item(1, 2).text() == "10.00"
     window.set_unit(Unit.MM)
     assert window.results_table.item(0, 2).text() == "mm²"
+
+
+def test_a_refused_dimension_is_explained_in_the_status_bar(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value)
+    window.canvas.editRejected.emit("read_only")
+    assert window._message_label.text() == strings.dimension_message("read_only")
+
+
+def test_a_dimension_edit_invalidates_the_previous_results(window: MainWindow) -> None:
+    window.canvas.set_section(
+        Section(
+            outer=Contour(
+                points=[Point(0, 0), Point(100, 0), Point(100, 100), Point(0, 100)],
+                closed=True,
+            )
+        )
+    )
+    assert window.calculate_now() is True
+    assert window.properties() is not None
+    assert window.canvas.apply_dimension_length(0, 150.0) is True
+    assert window.properties() is None
+    assert window.canvas.section().outer.points[1] == Point(150, 0)

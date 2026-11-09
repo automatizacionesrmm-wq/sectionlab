@@ -10,6 +10,7 @@ from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
 from sectionlab.core.snap import SnapKind
 from sectionlab.core.units import Unit
+from sectionlab.ui import strings
 from sectionlab.ui.canvas import (
     GRID_STEPS,
     INNER,
@@ -573,3 +574,124 @@ def test_the_drawing_renders_with_dimensions_axes_and_a_centroid(canvas: CanvasV
     # The centroid marker and the dimension text must actually reach the screen.
     assert tokens(Theme.DARK)["centroid"].lower() in colours
     assert len(colours) > 5
+
+
+# ------------------------------------------------ parametric dimensions (specs S3, S6)
+
+
+def test_double_clicking_a_dimension_opens_its_editor_prefilled(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.set_display(Unit.CM, 2)
+    dimension = canvas.dimensions()[0]
+    centre = canvas._dimension_box(dimension).center()
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonDblClick,
+        QPointF(centre),
+        QPointF(centre),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.mouseDoubleClickEvent(event)
+    assert canvas.has_dimension_editor()
+    editor = canvas._dimension_editor
+    assert editor is not None
+    assert editor.text() == "10.00"
+    editor.setText("12.5")
+    editor.returnPressed.emit()
+    assert not canvas.has_dimension_editor()
+    assert canvas.section().outer.points[1] == Point(125.0, 0)
+
+
+def test_typing_a_dimension_moves_the_geometry_in_one_undo_step(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    assert canvas.apply_dimension_length(0, 150.0) is True
+    points = canvas.section().outer.points
+    assert points[0] == Point(0, 0)
+    assert points[1] == Point(150, 0)
+    assert len(points) == 4
+    assert canvas.undo_stack().undoText() == strings.label_for("undo_dimension")
+    canvas.undo_stack().undo()
+    assert canvas.section().outer.points[1] == Point(100, 0)
+
+
+def test_the_unit_typed_is_the_unit_read_back(canvas: CanvasView) -> None:
+    """A dimension typed in centimetres must read back as the same number (spec S2)."""
+    canvas.set_section(free_section())
+    canvas.set_display(Unit.CM, 2)
+    assert canvas.apply_dimension_length(0, 25.0 * 10) is True
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "25.00"
+    canvas.set_display(Unit.IN, 3)
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "9.843"
+
+
+@pytest.mark.parametrize(
+    ("index", "length", "code"),
+    [
+        (3, 10.0, "closing_segment"),
+        (0, 0.0, "non_positive"),
+        (0, 100.0, "unchanged"),
+        (9, 10.0, "out_of_range"),
+    ],
+)
+def test_a_refused_dimension_reports_its_reason(canvas: CanvasView, index, length, code) -> None:
+    canvas.set_section(free_section())
+    seen: list[str] = []
+    canvas.editRejected.connect(seen.append)
+    assert canvas.apply_dimension_length(index, length) is False
+    assert seen == [code]
+
+
+def test_a_slanted_segment_cannot_be_dimensioned(canvas: CanvasView) -> None:
+    canvas.set_section(
+        Section(outer=Contour(points=[Point(0, 0), Point(30, 40), Point(0, 40)]))
+    )
+    seen: list[str] = []
+    canvas.editRejected.connect(seen.append)
+    assert canvas.apply_dimension_length(0, 60.0) is False
+    assert seen == ["slanted_segment"]
+
+
+def test_a_template_section_sends_the_edit_back_to_its_parameters(canvas: CanvasView) -> None:
+    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"width": 200.0, "height": 100.0}))
+    canvas.set_editable(False)
+    seen: list[str] = []
+    canvas.editRejected.connect(seen.append)
+    assert canvas.apply_dimension_length(0, 300.0) is False
+    assert seen == ["read_only"]
+    assert canvas.dimension_at(QPoint(10, 10)) is None
+
+
+def test_a_dimension_typed_as_text_is_parsed_in_the_active_unit(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.set_display(Unit.CM, 2)
+    dimension = canvas.dimensions()[0]
+    assert canvas.begin_dimension_edit(dimension) is True
+    editor = canvas._dimension_editor
+    assert editor is not None
+    editor.setText("2,5")
+    editor.returnPressed.emit()
+    assert canvas.section().outer.points[1] == Point(25.0, 0)
+
+
+def test_a_dimension_that_is_not_a_number_is_refused(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    seen: list[str] = []
+    canvas.editRejected.connect(seen.append)
+    dimension = canvas.dimensions()[0]
+    assert canvas.begin_dimension_edit(dimension) is True
+    editor = canvas._dimension_editor
+    assert editor is not None
+    editor.setText("ancho")
+    editor.returnPressed.emit()
+    assert seen == ["not_a_number"]
+    assert canvas.section().outer.points[1] == Point(100, 0)
+
+
+def test_escape_abandons_a_dimension_edit(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    dimension = canvas.dimensions()[0]
+    assert canvas.begin_dimension_edit(dimension) is True
+    canvas.close_dimension_editor()
+    assert canvas.has_dimension_editor() is False
+    assert canvas.section().outer.points[1] == Point(100, 0)

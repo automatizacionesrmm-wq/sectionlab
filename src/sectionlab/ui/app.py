@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
         self.canvas.snapChanged.connect(self._on_snap_changed)
         self.canvas.vertexSelected.connect(self._on_vertex_selected)
         self.canvas.drawingChanged.connect(self._on_drawing_changed)
+        self.canvas.editRejected.connect(self._on_dimension_rejected)
         self.template_panel.applied.connect(self.apply_template)
         self.template_panel.freeModeRequested.connect(self.start_free_geometry)
         self.vertex_table.vertexEdited.connect(self.canvas.move_vertex)
@@ -530,6 +531,8 @@ class MainWindow(QMainWindow):
         self.canvas.set_dimensions_visible(visible)
         if self.action_dimensions.isChecked() != visible:
             self.action_dimensions.setChecked(visible)
+        if visible:
+            self._set_message(strings.label_for("dimensions_hint"))
 
     def dimensions_visible(self) -> bool:
         return self.canvas.dimensions_visible()
@@ -654,6 +657,9 @@ class MainWindow(QMainWindow):
         if contour:
             self.vertex_table.select_vertex(contour, index)
         self._sync_undo_actions()
+
+    def _on_dimension_rejected(self, code: str) -> None:
+        self._set_message(strings.dimension_message(code))
 
     def _on_drawing_changed(self, drawing: bool) -> None:
         self.action_insert_vertex.setEnabled(self.canvas.is_editable())
