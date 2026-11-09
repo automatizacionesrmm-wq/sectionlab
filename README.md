@@ -47,22 +47,36 @@ PDF/PNG reports, **DXF import/export**.
    vertex turns green as the closing target, so clicking it (or the right button, or `Enter`)
    closes the contour, and `Esc` cancels. `F8` toggles ortho mode; snaps appear for endpoints,
    intersections, midpoints, centres and perpendicular feet.
-2. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
+   A template section belongs to its parameters, so its vertices stay locked. When you want to
+   adjust it by hand, **Convertir a geometría libre** keeps the contour exactly as drawn and
+   hands you the vertices; **Deshacer** puts the template back.
+2. Every segment carries its own dimension, written outside the contour in the active unit:
+   widths and heights for straight edges, a length for slanted ones. **Ver → Cotas**
+   (`Ctrl+D`) shows and hides them. Double-click an editable dimension, type the new value and
+   press `Enter`: the section moves so that segment measures that value, in one undo step. The
+   closing edge stays read-only because its length follows from the others, and a refused
+   value explains itself in the status bar.
+3. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.
-   The inspectors are docks, so you can float them, move them to the other side or resize
-   them. `F9` (**Ver → Paneles → Mostrar todos los paneles**) hides them all and brings back
+   The inspectors are docks, so you can drag them by their title bar to either side or out of
+   the window, double-click a title bar to float it, or right-click it for the same moves by
+   name. `F9` (**Ver → Paneles → Mostrar todos los paneles**) hides them all and brings back
    any that is closed, and **Ver → Paneles** lists each inspector so a panel closed with its
    own `×` can be reopened by name. While none of them is on screen the status bar says so.
-3. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
+4. **Calcular** (`Ctrl+Enter`) validates and fills the results table, then marks the centroid
+   with a dot and the principal axes `1` and `2`. The reference axes through the origin are
+   labelled `X` and `Y`. Validation messages are
    Spanish and name the offending geometry; saving an invalid drawing is still allowed.
-4. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
-   edits are undoable with `Ctrl+Z`.
-5. **Configuración → Preferencias** changes the active unit and the displayed decimals.
-   Changing the unit only converts the display; the geometry is never recomputed.
-6. **Ver → Tema** (`Ctrl+Shift+T`) switches between the dark and light themes; the choice is
+5. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
+   selecting a row marks that vertex on the drawing, and clicking a vertex selects its row.
+   Edits are undoable with `Ctrl+Z`.
+6. **Configuración → Preferencias** changes the active unit and the displayed decimals.
+   Changing the unit only converts the display; the geometry is never recomputed. The same
+   unit is used for input and output: dimensions, vertex table and results always agree.
+7. **Ver → Tema** (`Ctrl+Shift+T`) switches between the dark and light themes; the choice is
    remembered in the saved preferences.
-7. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
+8. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
    precision (`repr`), independent of the visible decimals.
 
 ## Stack
@@ -161,7 +175,7 @@ PyInstaller cannot cross-compile, so the Windows artifacts must be built on Wind
 spec builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
 
 ```bash
-dist/SectionLab/SectionLab --version     # SectionLab 0.1.1
+dist/SectionLab/SectionLab --version     # SectionLab 0.1.2
 dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, prints area and Ix
 ```
 
