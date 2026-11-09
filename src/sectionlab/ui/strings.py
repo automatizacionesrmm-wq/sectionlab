@@ -109,7 +109,7 @@ UI: dict[str, str] = {
     "delete_vertex": "Eliminar vértice",
     "add_vertex": "Insertar vértice",
     "template_mode": "Plantilla",
-    "free_mode": "Geometría libre",
+    "free_mode": "Nueva geometría libre",
     "vertex_table": "Vértices",
     "contour": "Contorno",
     "outer_contour": "Exterior",
@@ -150,7 +150,7 @@ UI: dict[str, str] = {
     "applied": "Plantilla aplicada",
     "calculated": "Resultados actualizados",
     "saved": "Proyecto guardado",
-    "converted": "Geometría libre: ya puedes editar los vértices",
+    "free_started": "Geometría libre: haz clic para añadir vértices",
 }
 
 _GENERIC_ERROR = "Ocurrió un problema que esta versión no reconoce."

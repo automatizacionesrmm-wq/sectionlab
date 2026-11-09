@@ -27,10 +27,14 @@ _PARAMETER_DECIMALS = 3
 
 
 class TemplatePanel(QWidget):
-    """Pick a template, edit its parameters, and apply it to the drawing."""
+    """Pick a template, edit its parameters, and apply it to the drawing.
+
+    Parametric and free-geometry modes stay separate (spec S10): the second button starts a
+    new empty drawing, it never converts the current template into editable vertices.
+    """
 
     applied = Signal(str, object)
-    convertRequested = Signal()
+    freeModeRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -54,17 +58,16 @@ class TemplatePanel(QWidget):
         self._apply = QPushButton(strings.label_for("template_mode"), self)
         self._apply.setText(strings.label_for("apply"))
 
-        self._convert = QPushButton(strings.label_for("free_mode"), self)
-        self._convert.setText(strings.label_for("free_mode"))
+        self._free = QPushButton(strings.label_for("free_mode"), self)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._kind)
         layout.addWidget(self._group)
         layout.addWidget(self._apply)
-        layout.addWidget(self._convert)
+        layout.addWidget(self._free)
 
         self._apply.clicked.connect(self._emit_applied)
-        self._convert.clicked.connect(self.convertRequested.emit)
+        self._free.clicked.connect(self.freeModeRequested.emit)
         self._rebuild_form()
 
     def kind(self) -> str:

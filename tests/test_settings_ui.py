@@ -111,6 +111,6 @@ def test_setting_parameters_shows_them_in_the_active_unit(panel: TemplatePanel) 
     assert panel.params()["b"] == pytest.approx(150.0)
 
 
-def test_conversion_to_free_geometry_is_requested(qtbot, panel: TemplatePanel) -> None:
-    with qtbot.waitSignal(panel.convertRequested, timeout=200):
-        panel._convert.click()
+def test_free_geometry_mode_is_requested(qtbot, panel: TemplatePanel) -> None:
+    with qtbot.waitSignal(panel.freeModeRequested, timeout=200):
+        panel._free.click()

@@ -28,13 +28,14 @@ truth for scope, behavior and conventions.
 
 Torsion constant J, warping constant, shear centre, shear areas, plastic section moduli,
 plastic centroid, shape factor, composite/material properties, stress visualisation,
-reference-axis tool, user-created holes, hatch, multi-section documents, cut/paste/trim,
-numeric length/angle drawing entry, PDF/PNG reports, **DXF import/export**.
+reference-axis tool, user-created holes, hatch, multi-section documents,
+template→free-geometry conversion, cut/paste/trim, numeric length/angle drawing entry,
+PDF/PNG reports, **DXF import/export**.
 
 ## Usage
 
 1. Pick a template on the right, type its parameters in the active unit and press
-   **Aplicar**, or press **Geometría libre** and draw with the mouse: click to add a vertex,
+   **Aplicar**, or press **Nueva geometría libre** and draw with the mouse: click to add a vertex,
    `Enter` to close the contour, `Esc` to cancel. `F8` toggles ortho mode; snaps appear for
    endpoints, intersections, midpoints, centres and perpendicular feet.
 2. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are

@@ -96,12 +96,13 @@ def test_valid_free_geometry_calculates(window: MainWindow) -> None:
     assert window.properties() is not None
 
 
-def test_converting_a_template_releases_the_geometry(window: MainWindow) -> None:
+def test_free_geometry_mode_starts_an_empty_drawing(window: MainWindow) -> None:
     window.apply_template(TemplateKind.PIPE.value)
-    assert window.convert_to_free_geometry() is True
+    window.start_free_geometry()
     assert window.canvas.is_editable() is True
+    assert window.canvas.is_drawing() is True
     assert window.section().template is None
-    assert len(window.section().outer.points) > 3
+    assert window.section().outer.points == []
 
 
 def test_unit_change_only_converts_the_display(window: MainWindow) -> None:

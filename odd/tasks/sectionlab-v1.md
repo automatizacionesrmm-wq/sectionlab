@@ -261,6 +261,9 @@ def load(path: str | Path) -> tuple[Section, Unit]
   the bundle also starts offscreen once the host `libEGL` is injected, the same host limitation
   `tools/dev.sh` works around. PyInstaller cannot cross-compile, so the actual Windows ZIP has
   to be produced on Windows by `tools\build_windows.ps1`.
+- **L10** Correction: the first implementation shipped a "convert template to free geometry"
+  action that spec S10 and S12 explicitly defer to v2. It was removed before release; the
+  second mode button now starts a new empty free drawing and never converts a template.
 - **L7** Template parameter form keeps the millimetre value it was built from, so switching
   mm → cm → in → mm on the form never accumulates rounding drift; typed values still convert
   on apply. Guarded by `tests/test_settings_ui.py`.

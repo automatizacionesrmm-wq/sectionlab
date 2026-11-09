@@ -33,7 +33,7 @@ from sectionlab.core.document import (
     save,
 )
 from sectionlab.core.engine import InvalidSectionError, SectionProperties, calculate
-from sectionlab.core.model import Section
+from sectionlab.core.model import Contour, Section
 from sectionlab.core.templates import TemplateKind, TemplateParameterError, build_section
 from sectionlab.core.units import Unit
 from sectionlab.core.validation import ValidationIssue, validate_section
@@ -94,7 +94,7 @@ class MainWindow(QMainWindow):
         self.canvas.vertexSelected.connect(self._on_vertex_selected)
         self.canvas.drawingChanged.connect(self._on_drawing_changed)
         self.template_panel.applied.connect(self.apply_template)
-        self.template_panel.convertRequested.connect(self.convert_to_free_geometry)
+        self.template_panel.freeModeRequested.connect(self.start_free_geometry)
         self.vertex_table.vertexEdited.connect(self.canvas.move_vertex)
         self.vertex_table.vertexActivated.connect(self.canvas.select_vertex)
 
@@ -260,16 +260,14 @@ class MainWindow(QMainWindow):
         self._last_error = None
         return True
 
-    def convert_to_free_geometry(self) -> bool:
-        """Keep the contours and drop the template so the drawing can be edited."""
-        section = self.canvas.section()
-        if section.template is None:
-            self.canvas.set_editable(True)
-            return False
-        self.canvas.set_section(Section(outer=section.outer, inner=section.inner))
+    def start_free_geometry(self) -> None:
+        """Discard the current geometry and start an empty free drawing (spec S10)."""
+        self.canvas.set_section(Section(outer=Contour(points=[])))
         self.canvas.set_editable(True)
-        self._set_message(strings.label_for("free_mode"))
-        return True
+        self.canvas.begin_drawing()
+        self._path = None
+        self._props = None
+        self._set_message(strings.label_for("free_started"))
 
     def insert_vertex(self) -> None:
         if not self.canvas.is_editable():
