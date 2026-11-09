@@ -8,8 +8,10 @@ keeps undo/redo exact for small sections (spec S8, S14).
 from __future__ import annotations
 
 from dataclasses import replace
+from math import hypot
+from typing import Mapping
 
-from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -30,22 +32,41 @@ from PySide6.QtWidgets import (
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.snap import SnapKind, apply_ortho, candidates, find_snap
+from sectionlab.ui import theme as ui_theme
 
 OUTER = "outer"
 INNER = "inner"
 
 SNAP_TOLERANCE_PX = 8.0
 NODE_RADIUS_PX = 4.0
+NODE_HIT_PX = 9.0
 ZOOM_STEP = 1.15
 MIN_SCALE = 0.01
 MAX_SCALE = 1000.0
+GRID_STEPS = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0)
+MIN_GRID_PX = 7.0
 
-_OUTER_PEN = QPen(QColor("#1f6feb"), 2)
+_PALETTE: dict[str, str] = dict(ui_theme.DARK)
+
+_OUTER_PEN = QPen(QColor(_PALETTE["contour"]), 2)
 _OUTER_PEN.setCosmetic(True)
-_INNER_PEN = QPen(QColor("#8250df"), 2, Qt.PenStyle.DashLine)
+_INNER_PEN = QPen(QColor(_PALETTE["inner"]), 1.6, Qt.PenStyle.DashLine)
 _INNER_PEN.setCosmetic(True)
-_DRAFT_PEN = QPen(QColor("#1f6feb"), 1, Qt.PenStyle.DashLine)
+_DRAFT_PEN = QPen(QColor(_PALETTE["draft"]), 1.2, Qt.PenStyle.DashLine)
 _DRAFT_PEN.setCosmetic(True)
+
+
+def set_palette(palette: Mapping[str, str]) -> None:
+    """Recolour every pen the canvas owns from one theme's tokens."""
+    _PALETTE.clear()
+    _PALETTE.update(palette)
+    _OUTER_PEN.setColor(QColor(_PALETTE["contour"]))
+    _INNER_PEN.setColor(QColor(_PALETTE["inner"]))
+    _DRAFT_PEN.setColor(QColor(_PALETTE["draft"]))
+
+
+def palette() -> dict[str, str]:
+    return dict(_PALETTE)
 
 
 class _NodeItem(QGraphicsEllipseItem):
@@ -56,8 +77,9 @@ class _NodeItem(QGraphicsEllipseItem):
         self.contour = contour
         self.index = index
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setBrush(QBrush(QColor("#ffffff")))
-        self.setPen(QPen(QColor("#1f6feb") if contour == OUTER else QColor("#8250df"), 1))
+        self.setBrush(QBrush(QColor(_PALETTE["handle"])))
+        outline = _PALETTE["contour"] if contour == OUTER else _PALETTE["inner"]
+        self.setPen(QPen(QColor(outline), 1.4))
         self.setZValue(10)
 
 
@@ -76,6 +98,8 @@ class _ContourItem(QGraphicsPathItem):
                 path.closeSubpath()
         self.setPath(path)
         self.setPen(_INNER_PEN if inner else _OUTER_PEN)
+        if not inner and contour.closed:
+            self.setBrush(QBrush(QColor(_PALETTE["contour_fill"])))
         self.setZValue(1)
 
 
@@ -109,8 +133,10 @@ class CanvasView(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self.setBackgroundBrush(QBrush(QColor("#fbfbfd")))
+        self.setBackgroundBrush(QBrush(QColor(_PALETTE["canvas"])))
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setMouseTracking(True)
 
         self._section = Section(outer=Contour(points=[]))
         self._editable = True
@@ -123,6 +149,8 @@ class CanvasView(QGraphicsView):
         self._selected: tuple[str, int] | None = None
         self._undo = QUndoStack(self)
         self._snap = None
+        self._cursor_scene: QPointF | None = None
+        self._snap_marker: QGraphicsEllipseItem | None = None
         self._rebuild()
 
     # ------------------------------------------------------------------ public API
@@ -256,12 +284,20 @@ class CanvasView(QGraphicsView):
         """Zoom so the whole section is visible with a margin."""
         rect = self._scene.itemsBoundingRect()
         if rect.isNull() or rect.isEmpty():
-            self.resetTransform()
+            self.reset_view()
             return
         self.fitInView(
             rect.adjusted(-rect.width() * 0.05, -rect.height() * 0.05, rect.width() * 0.05, rect.height() * 0.05),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        self.viewport().update()
+
+    def reset_view(self) -> None:
+        """The starting view: two pixels per millimetre, centred on the model origin."""
+        self.resetTransform()
+        self.scale(2.0, 2.0)
+        self.centerOn(0.0, 0.0)
+        self.viewport().update()
 
     # -------------------------------------------------------------- model plumbing
 
@@ -323,18 +359,137 @@ class CanvasView(QGraphicsView):
             anchor = self._last_vertex()
             if anchor is not None:
                 self._rubber.setLine(anchor.x, -anchor.y, anchor.x, -anchor.y)
+        marker = QGraphicsEllipseItem(-5.0, -5.0, 10.0, 10.0)
+        marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        marker.setPen(QPen(QColor(_PALETTE["snap"]), 1.6))
+        marker.setBrush(Qt.BrushStyle.NoBrush)
+        marker.setZValue(20)
+        marker.setVisible(False)
+        self._scene.addItem(marker)
+        self._snap_marker = marker
         self._paint_selection()
 
     def _paint_selection(self) -> None:
         for node in self._nodes:
             selected = self._selected == (node.contour, node.index)
-            node.setBrush(QBrush(QColor("#ffd33d") if selected else "#ffffff"))
+            colour = _PALETTE["handle_selected"] if selected else _PALETTE["handle"]
+            node.setBrush(QBrush(QColor(colour)))
 
     def _node_at(self, point: QPointF) -> _NodeItem | None:
+        cursor = self.mapFromScene(point)
+        best: _NodeItem | None = None
+        best_distance = NODE_HIT_PX
         for node in self._nodes:
-            if node.isVisible() and node.sceneBoundingRect().contains(point):
-                return node
-        return None
+            if not node.isVisible():
+                continue
+            handle = self.mapFromScene(QPointF(node.pos().x(), node.pos().y()))
+            distance = hypot(handle.x() - cursor.x(), handle.y() - cursor.y())
+            if distance <= best_distance:
+                best, best_distance = node, distance
+        return best
+
+    # ---------------------------------------------------------------- drafting surface
+
+    def apply_palette(self, palette: Mapping[str, str]) -> None:
+        """Repaint and rebuild after the user switches theme."""
+        set_palette(palette)
+        self.setBackgroundBrush(QBrush(QColor(_PALETTE["canvas"])))
+        self._rebuild()
+        self.viewport().update()
+
+    def grid_step(self) -> float:
+        """Millimetres between grid lines, chosen so the minor grid stays readable."""
+        scale = self.pixels_per_mm()
+        for step in GRID_STEPS:
+            if step * scale >= MIN_GRID_PX:
+                return step
+        return GRID_STEPS[-1]
+
+    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+        painter.fillRect(rect, QColor(_PALETTE["canvas"]))
+        step = self.grid_step()
+        major_every = 5
+        left = step * (rect.left() // step)
+        top = step * (rect.top() // step)
+        if (rect.width() / step) > 400 or (rect.height() / step) > 400:  # pragma: no cover - guard
+            return
+        minor = QPen(QColor(_PALETTE["grid_minor"]), 0)
+        major = QPen(QColor(_PALETTE["grid_major"]), 0)
+        axis = QPen(QColor(_PALETTE["axis"]), 0)
+        axis.setCosmetic(True)
+        minor.setCosmetic(True)
+        major.setCosmetic(True)
+
+        minor_lines, major_lines = [], []
+        index = int(round(left / step))
+        x = left
+        while x <= rect.right():
+            target = major_lines if index % major_every == 0 else minor_lines
+            target.append((QPointF(x, rect.top()), QPointF(x, rect.bottom())))
+            index += 1
+            x += step
+        index = int(round(top / step))
+        y = top
+        while y <= rect.bottom():
+            target = major_lines if index % major_every == 0 else minor_lines
+            target.append((QPointF(rect.left(), y), QPointF(rect.right(), y)))
+            index += 1
+            y += step
+
+        painter.setPen(minor)
+        for a, b in minor_lines:
+            painter.drawLine(a, b)
+        painter.setPen(major)
+        for a, b in major_lines:
+            painter.drawLine(a, b)
+        painter.setPen(axis)
+        if rect.top() <= 0 <= rect.bottom():
+            painter.drawLine(QPointF(rect.left(), 0.0), QPointF(rect.right(), 0.0))
+        if rect.left() <= 0 <= rect.right():
+            painter.drawLine(QPointF(0.0, rect.top()), QPointF(0.0, rect.bottom()))
+
+    def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+        painter.save()
+        painter.setWorldMatrixEnabled(False)
+        step = self.grid_step()
+        major = step * 5
+        colour = QColor(_PALETTE["axis_text"])
+        painter.setPen(QPen(colour))
+        font = painter.font()
+        font.setPointSizeF(7.5)
+        painter.setFont(font)
+
+        origin = self.mapFromScene(QPointF(0.0, 0.0))
+        width, height = self.viewport().width(), self.viewport().height()
+        if 0 <= origin.y() <= height:
+            start = self.mapFromScene(QPointF(rect.left(), 0.0)).x()
+            end = self.mapFromScene(QPointF(rect.right(), 0.0)).x()
+            value = int(step * (rect.left() // step))
+            x = start
+            while x <= end:
+                if value and abs(value) % int(major) == 0 and width * 0.02 < x < width * 0.98:
+                    painter.drawText(QPoint(int(x) + 3, int(origin.y()) + 12), str(int(value)))
+                value += int(step)
+                x = self.mapFromScene(QPointF(value, 0.0)).x()
+        if 0 <= origin.x() <= width:
+            start = self.mapFromScene(QPointF(0.0, rect.top())).y()
+            end = self.mapFromScene(QPointF(0.0, rect.bottom())).y()
+            value = int(step * (rect.top() // step))
+            y = start
+            while y <= end:
+                if value and abs(value) % int(major) == 0 and height * 0.02 < y < height * 0.98:
+                    painter.drawText(QPoint(int(origin.x()) + 5, int(y) - 3), str(int(-value)))
+                value += int(step)
+                y = self.mapFromScene(QPointF(0.0, value)).y()
+
+        if self._cursor_scene is not None:
+            cursor = self.mapFromScene(self._cursor_scene)
+            painter.setPen(QPen(QColor(_PALETTE["crosshair"]), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(QPoint(cursor.x(), 0), QPoint(cursor.x(), height))
+            painter.drawLine(QPoint(0, cursor.y()), QPoint(width, cursor.y()))
+            painter.setPen(QPen(QColor(_PALETTE["text_faint"])))
+            painter.drawText(QPoint(cursor.x() + 8, cursor.y() - 6), f"{self._cursor_scene.x():.1f}, {-self._cursor_scene.y():.1f}")
+        painter.restore()
 
     # ------------------------------------------------------------- mouse and keys
 
@@ -374,9 +529,16 @@ class CanvasView(QGraphicsView):
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt override
         scene_pos = self.mapToScene(event.position().toPoint())
+        self._cursor_scene = scene_pos
         point, kind = self.snapped_point(scene_pos)
         self.snapChanged.emit(kind.value if kind is not None else "")
         self.cursorMoved.emit(point.x, point.y)
+        if self._snap_marker is not None:
+            visible = kind is not None and self._editable
+            self._snap_marker.setVisible(visible)
+            if visible:
+                self._snap_marker.setPos(point.x, -point.y)
+        self.viewport().update()
 
         if self._drag is not None:
             contour, index, node, _ = self._drag

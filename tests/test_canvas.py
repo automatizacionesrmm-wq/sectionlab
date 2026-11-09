@@ -8,7 +8,8 @@ from PySide6.QtCore import QPointF, Qt
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
 from sectionlab.core.snap import SnapKind
-from sectionlab.ui.canvas import INNER, OUTER, CanvasView
+from sectionlab.ui.canvas import GRID_STEPS, INNER, MIN_GRID_PX, OUTER, CanvasView
+from sectionlab.ui.theme import Theme, tokens
 
 
 @pytest.fixture()
@@ -266,3 +267,30 @@ def test_clicking_the_first_vertex_closes_the_polyline(canvas: CanvasView, qtbot
     assert canvas.section().outer.closed is True
     assert len(canvas.section().outer.points) == 3
     assert canvas.draft_line() is None
+
+
+def test_the_view_starts_at_two_pixels_per_millimetre(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    assert canvas.transform().m11() == pytest.approx(2.0)
+    assert canvas.pixels_per_mm() == pytest.approx(2.0)
+
+
+def test_the_grid_step_keeps_the_minor_lines_readable(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    step = canvas.grid_step()
+    assert step in GRID_STEPS
+    assert step * canvas.pixels_per_mm() >= MIN_GRID_PX
+
+
+def test_the_grid_coarsens_when_zoomed_out(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    near = canvas.grid_step()
+    canvas.scale(0.2, 0.2)
+    assert canvas.grid_step() > near
+
+
+def test_switching_theme_keeps_the_geometry(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.apply_palette(tokens(Theme.LIGHT))
+    assert canvas.section() == free_section()
+    assert len(canvas._nodes) == 4
