@@ -31,6 +31,18 @@ def test_self_test_uses_a_dialog_when_there_is_no_console(monkeypatch) -> None:
     assert "area=20000.000000" in captured[0][0]
 
 
+def test_self_test_can_write_its_report_to_a_file(monkeypatch, tmp_path) -> None:
+    from sectionlab import __main__ as entry
+
+    report = tmp_path / "selftest.txt"
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setenv("SECTIONLAB_SELFTEST_FILE", str(report))
+    assert entry.main(["--self-test"]) == 0
+    text = report.read_text(encoding="utf-8")
+    assert "area=20000.000000" in text
+    assert text.strip().endswith("ok")
+
+
 def test_self_test_runs_the_solver(capsys) -> None:
     assert main(["--self-test"]) == 0
     output = capsys.readouterr().out

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 
 from sectionlab import __version__
 
@@ -41,7 +43,16 @@ def _self_test() -> int:
 
 
 def _report_without_console(report: str, ok: bool) -> None:
-    """Show the self-test result in a dialog, for the console-less Windows build."""
+    """Report the self-test from a console-less Windows build.
+
+    A windowed executable has no stdout, so the result goes to a dialog. Automation sets
+    ``SECTIONLAB_SELFTEST_FILE`` to collect the same result without a blocking dialog.
+    """
+    target = os.environ.get("SECTIONLAB_SELFTEST_FILE")
+    if target:
+        Path(target).write_text(f"{report}\n{'ok' if ok else 'failed'}\n", encoding="utf-8")
+        return
+
     from PySide6.QtWidgets import QApplication, QMessageBox
 
     application = QApplication.instance() or QApplication([])

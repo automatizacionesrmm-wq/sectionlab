@@ -1,0 +1,57 @@
+name: windows-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "packaging/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "tools/build_windows.ps1"
+      - ".github/workflows/windows-build.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install runtime and build dependencies
+        run: uv sync --extra build
+
+      - name: Build the onedir bundle
+        run: uv run pyinstaller --noconfirm --clean packaging/sectionlab.spec
+
+      - name: Verify the frozen solver
+        shell: pwsh
+        run: |
+          $report = Join-Path $PWD "selftest.txt"
+          $env:SECTIONLAB_SELFTEST_FILE = $report
+          $process = Start-Process -FilePath "dist\SectionLab\SectionLab.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if (Test-Path $report) { Get-Content $report }
+          if ($process.ExitCode -ne 0) { throw "Frozen self-test exited with $($process.ExitCode)" }
+          if (-not (Select-String -Path $report -Pattern "area=20000.000000" -Quiet)) {
+            throw "The frozen bundle reported unexpected numbers"
+          }
+
+      - name: Package the ZIP
+        shell: pwsh
+        run: |
+          $version = (uv run python -c "import sectionlab; print(sectionlab.__version__)").Trim()
+          Compress-Archive -Path "dist/SectionLab/*" -DestinationPath "dist/SectionLab-$version-windows.zip" -Force
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SectionLab-windows
+          path: dist/SectionLab-*-windows.zip
+          retention-days: 30
