@@ -727,9 +727,11 @@ class CanvasView(QGraphicsView):
         metrics = painter.fontMetrics()
         for dimension in self.dimensions():
             first, second, normal = self._dimension_geometry(dimension)
-            colour = QColor(_PALETTE["accent"] if self._is_highlighted(dimension) else _PALETTE["dim_text"])
+            highlighted = self._is_highlighted(dimension)
+            colour = QColor(_PALETTE["accent"] if highlighted else _PALETTE["dim_text"])
             style = Qt.PenStyle.SolidLine if dimension.editable else Qt.PenStyle.DashLine
-            painter.setPen(QPen(colour, 1.0, style))
+            line = QColor(_PALETTE["accent"] if highlighted else _PALETTE["dim"])
+            painter.setPen(QPen(line, 1.0, style))
             start = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
             end = self.mapFromScene(QPointF(dimension.end.x, -dimension.end.y))
             painter.drawLine(first, second)

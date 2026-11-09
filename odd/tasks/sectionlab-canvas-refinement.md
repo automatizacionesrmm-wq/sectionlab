@@ -47,9 +47,10 @@ S7. Selecting a vertex in the table marks that same vertex on the drawing, and c
     vertex on the drawing selects its row. The two views never disagree.
 
 S8. «todos los cuadros estan de un solo lado… yo quiero poder moverlos»: dragging an
-    inspector by its header really moves it — to the left column, the right column, the bottom
-    or out as its own window — and right-clicking the header offers the same moves as explicit
-    entries, so it works even when dragging is awkward. Double-clicking the header floats or
+    inspector by its header really moves it — to the left column, the right column, or out as
+    its own window — and right-clicking the header offers the same moves as explicit entries,
+    so it works even when dragging is awkward. The bottom edge is deliberately not a target:
+    it would take height away from the drawing. Double-clicking the header floats or
     docks it. The default arrangement spreads the information: `Plantilla` above `Vértices` on
     the left, `Resultados` on the right, drawing in the middle.
 

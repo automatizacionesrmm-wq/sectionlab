@@ -240,6 +240,13 @@ QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {{
     selection-background-color: {accent_soft};
     selection-color: {accent_text};
 }}
+QLineEdit#dimension_editor {{
+    background: {panel_high};
+    border: 1px solid {accent};
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: {text};
+}}
 QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QLineEdit:hover {{ border-color: {accent_border}; }}
 QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QLineEdit:focus {{ border-color: {accent}; }}
 QComboBox::drop-down {{ border: 0; width: 18px; }}
