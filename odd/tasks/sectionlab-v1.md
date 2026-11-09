@@ -302,4 +302,8 @@ def load(path: str | Path) -> tuple[Section, Unit]
   with `ModuleNotFoundError`. Verified on Linux: frozen `--self-test` exit 0, `app` 200 kB,
   `_internal` 280 MB. The installer is `packaging/sectionlab.iss` (stable `AppId`,
   `PrivilegesRequired=lowest`, Spanish and English), compiled by the workflow on
-  `windows-latest`, so an update is a setup that upgrades in place.
+  `windows-latest`, so an update is a setup that upgrades in place. CI evidence, run
+  42638287837 on `dc1f8e0`: `success`, frozen `--self-test` green, code archive 44 159 bytes,
+  portable zip 114 291 713 bytes, installer 75 292 028 bytes (lzma2 beats the zip by 34 %),
+  published as three artifacts — `SectionLab-installer`, `SectionLab-code`,
+  `SectionLab-portable` — so a download fetches one file instead of a bundle of three.

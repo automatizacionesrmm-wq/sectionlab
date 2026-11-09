@@ -92,9 +92,9 @@ A release is three files, because the runtime and the application change at diff
 
 | Artifact | Size | Changes when |
 | --- | --- | --- |
-| `SectionLab-<version>-setup.exe` | ~45 MB | a dependency or Python itself changes |
-| `SectionLab-<version>-windows.zip` | ~108 MB | never useful on its own: the portable copy of the same folder |
-| `SectionLab-<version>-code.zip` | ~60 kB | the application code changes, which is almost always |
+| `SectionLab-<version>-setup.exe` | 75 MB | a dependency or Python itself changes |
+| `SectionLab-<version>-windows.zip` | 114 MB | never useful on its own: the portable copy of the same folder |
+| `SectionLab-<version>-code.zip` | 43 kB | the application code changes, which is almost always |
 
 The setup installs under the user profile (no administrator rights), and running a newer setup
 upgrades the previous installation in place: there is no folder to decompress and the saved
@@ -121,9 +121,10 @@ executable and writes that archive, locally and in CI.
 
 Every push to `main` builds the bundle on a Windows runner:
 [`.github/workflows/windows-build.yml`](.github/workflows/windows-build.yml). Open the
-**Actions** tab, pick the newest `windows-build` run and download the `SectionLab-windows`
-artifact, which holds the three files above. The run fails if the frozen bundle does not pass
-`--self-test`, so a green artifact is a working build.
+**Actions** tab, pick the newest `windows-build` run and download the artifact you need:
+`SectionLab-installer` (75 MB), `SectionLab-code` (43 kB) or `SectionLab-portable` (114 MB).
+The run fails if the frozen bundle does not pass `--self-test`, so a green artifact is a working
+build.
 
 ### Build it yourself
 

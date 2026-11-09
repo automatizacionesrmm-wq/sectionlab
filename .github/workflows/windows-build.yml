@@ -68,13 +68,22 @@ jobs:
           if (-not (Test-Path "dist/SectionLab-$version-setup.exe")) { throw "The installer was not produced" }
           Get-ChildItem dist | Select-Object Name, Length
 
+      # Published separately so a download fetches one thing instead of a bundle of three:
+      # an update normally needs only the code archive.
       - uses: actions/upload-artifact@v4
         with:
-          name: SectionLab-windows
-          # The code archive goes with it: it is the only file an update of the
-          # application needs, and it is two orders of magnitude smaller than the bundle.
-          path: |
-            dist/SectionLab-*-windows.zip
-            dist/SectionLab-*-code.zip
-            dist/SectionLab-*-setup.exe
+          name: SectionLab-installer
+          path: dist/SectionLab-*-setup.exe
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SectionLab-code
+          path: dist/SectionLab-*-code.zip
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SectionLab-portable
+          path: dist/SectionLab-*-windows.zip
           retention-days: 30
