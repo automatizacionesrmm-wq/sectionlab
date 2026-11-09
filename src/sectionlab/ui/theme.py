@@ -176,6 +176,13 @@ QLabel#status {{
     border-right: 1px solid {border};
 }}
 
+QLabel#panels_hint {{
+    color: {accent};
+    font-size: 11px;
+    padding: 2px 10px;
+    border-right: 1px solid {border};
+}}
+
 QFrame#panel {{
     background: {panel};
     border: 1px solid {border};

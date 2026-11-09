@@ -115,3 +115,14 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   that already carried the device pixel ratio, so every icon was drawn at twice its size and
   clipped to its top-left fragment. Fixed to `size / _GRID`, with
   `test_every_icon_fills_its_box_without_being_clipped` pinning it (RED before, GREEN after).
+- **L14** User, verbatim: «me gusta visualmente pero hice algo quite la barra lateral ahora
+  donde la encuentro?» — the docks could be closed with their own `×` and the only way back
+  was `F9`, which nothing announced. S3/S4 now require: a `Ver → Paneles` submenu built from
+  each dock's `toggleViewAction()` (so a single panel is reopened by name, in sync with Qt),
+  a master entry that is checked only when **every** inspector is up, so one press adds back
+  what is missing instead of finishing the hiding, and a status-bar hint
+  («Paneles ocultos · F9 o Ver → Paneles los recupera») that is visible only while none of
+  them is on screen. Tests: `test_one_shortcut_press_restores_the_panels_it_found_missing`,
+  `test_the_panels_menu_can_reopen_the_one_that_was_closed`,
+  `test_the_status_bar_explains_how_to_bring_the_panels_back`; the older
+  `test_hiding_one_panel_unchecks_the_toggle` now pins the all-visible semantics.

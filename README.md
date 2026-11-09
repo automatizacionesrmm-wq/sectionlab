@@ -51,7 +51,9 @@ PDF/PNG reports, **DXF import/export**.
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.
    The inspectors are docks, so you can float them, move them to the other side or resize
-   them, and `F9` (**Ver → Paneles**) hides every panel to leave the drawing alone.
+   them. `F9` (**Ver → Paneles → Mostrar todos los paneles**) hides them all and brings back
+   any that is closed, and **Ver → Paneles** lists each inspector so a panel closed with its
+   own `×` can be reopened by name. While none of them is on screen the status bar says so.
 3. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
    Spanish and name the offending geometry; saving an invalid drawing is still allowed.
 4. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
@@ -159,7 +161,7 @@ PyInstaller cannot cross-compile, so the Windows artifacts must be built on Wind
 spec builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
 
 ```bash
-dist/SectionLab/SectionLab --version     # SectionLab 0.1.0
+dist/SectionLab/SectionLab --version     # SectionLab 0.1.1
 dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, prints area and Ix
 ```
 

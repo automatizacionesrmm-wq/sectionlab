@@ -273,8 +273,64 @@ def test_hiding_one_panel_unchecks_the_toggle(window: MainWindow, qtbot) -> None
     window.show()
     with qtbot.waitExposed(window):
         pass
+    window._docks[0].hide()
+    assert not window.action_panels.isChecked()
+    assert window.panels_visible()
+    for dock in window._docks:
+        dock.show()
+    assert window.action_panels.isChecked()
+
+
+def test_one_shortcut_press_restores_the_panels_it_found_missing(
+    window: MainWindow, qtbot
+) -> None:
+    """F9 must add back what is closed, not finish hiding what is left."""
+    window.show()
+    with qtbot.waitExposed(window):
+        pass
     for dock in window._docks:
         dock.hide()
-    assert not window.action_panels.isChecked()
-    window._docks[2].show()
+    assert not window.panels_visible()
+
+    window.action_panels.trigger()
+
+    assert window.all_panels_visible()
     assert window.action_panels.isChecked()
+
+    window.action_panels.trigger()
+
+    assert not window.panels_visible()
+
+
+def test_the_panels_menu_can_reopen_the_one_that_was_closed(window: MainWindow, qtbot) -> None:
+    window.show()
+    with qtbot.waitExposed(window):
+        pass
+    closed = window._docks[1]
+    closed.hide()
+
+    reopen = window._panel_actions[1]
+    assert reopen.isCheckable()
+    assert not reopen.isChecked()
+    reopen.trigger()
+
+    assert not closed.isHidden()
+    assert reopen.isChecked()
+
+
+def test_the_status_bar_explains_how_to_bring_the_panels_back(
+    window: MainWindow, qtbot
+) -> None:
+    window.show()
+    with qtbot.waitExposed(window):
+        pass
+    assert window._panels_hint.isHidden()
+
+    window.set_panels_visible(False)
+
+    assert not window._panels_hint.isHidden()
+    assert "F9" in window._panels_hint.text()
+
+    window.set_panels_visible(True)
+
+    assert window._panels_hint.isHidden()

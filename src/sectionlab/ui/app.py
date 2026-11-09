@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
         self._icon_targets: list[tuple[QAction, str]] = []
         self._glyphs: list[tuple[QLabel, str]] = []
         self._docks: list[QDockWidget] = []
+        self._panel_actions: list[QAction] = []
         self._dock_closers: list[QToolButton] = []
 
         self.canvas = CanvasView(self)
@@ -99,6 +100,10 @@ class MainWindow(QMainWindow):
             label.setObjectName("status")
             self.statusBar().addWidget(label)
         self._nav_label.setObjectName("status")
+        self._panels_hint = QLabel(strings.label_for("panels_hidden_hint"), self)
+        self._panels_hint.setObjectName("panels_hint")
+        self._panels_hint.hide()
+        self.statusBar().addPermanentWidget(self._panels_hint)
         self.statusBar().addPermanentWidget(self._nav_label)
         self.statusBar().addPermanentWidget(self._message_label)
 
@@ -164,6 +169,9 @@ class MainWindow(QMainWindow):
         dock.setWidget(self._panel_body(dock, content))
         dock.visibilityChanged.connect(self._sync_panels_action)
         self._docks.append(dock)
+        # Qt keeps this checkable action in step with the dock, which is what lets the
+        # Paneles submenu reopen one panel the user closed with its own close button.
+        self._panel_actions.append(dock.toggleViewAction())
         return dock
 
     def _panel_header(self, dock: QDockWidget, title: str, glyph: str) -> QWidget:
@@ -203,7 +211,11 @@ class MainWindow(QMainWindow):
         return frame
 
     def panels_visible(self) -> bool:
+        """True when at least one inspector is on screen."""
         return any(not dock.isHidden() for dock in self._docks)
+
+    def all_panels_visible(self) -> bool:
+        return all(not dock.isHidden() for dock in self._docks)
 
     def set_panels_visible(self, visible: bool) -> None:
         """Show or hide every inspector at once, leaving the drawing alone on screen."""
@@ -216,12 +228,16 @@ class MainWindow(QMainWindow):
         self._sync_panels_action()
 
     def _sync_panels_action(self, *_args: object) -> None:
-        if not hasattr(self, "action_panels"):
-            return
-        visible = self.panels_visible()
-        self.action_panels.blockSignals(True)
-        self.action_panels.setChecked(visible)
-        self.action_panels.blockSignals(False)
+        """Keep F9 and the status hint honest about what is on screen."""
+        if hasattr(self, "action_panels"):
+            # Checked only when every inspector is up, so one F9 press restores the rest
+            # instead of hiding what is left.
+            self.action_panels.blockSignals(True)
+            self.action_panels.setChecked(self.all_panels_visible())
+            self.action_panels.blockSignals(False)
+        if hasattr(self, "_panels_hint"):
+            nothing_shown = not self.panels_visible()
+            self._panels_hint.setVisible(nothing_shown)
 
     def _build_actions(self) -> None:
         toolbar = self.addToolBar(strings.label_for("main_toolbar"))
@@ -275,7 +291,7 @@ class MainWindow(QMainWindow):
         self.action_theme.setShortcut(QKeySequence("Ctrl+Shift+T"))
         self.action_theme.triggered.connect(self.toggle_theme)
 
-        self.action_panels = QAction(strings.label_for("panels"), self)
+        self.action_panels = QAction(strings.label_for("panels_all"), self)
         self.action_panels.setCheckable(True)
         self.action_panels.setChecked(True)
         self.action_panels.setShortcut(QKeySequence("F9"))
@@ -307,7 +323,14 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.action_ortho)
         view_menu.addAction(self.action_theme)
-        view_menu.addAction(self.action_panels)
+
+        # A closed panel must always be findable again: one entry per inspector, kept in
+        # sync by Qt, plus the F9 shortcut that brings all of them back.
+        panels_menu = view_menu.addMenu(strings.label_for("panels"))
+        panels_menu.addAction(self.action_panels)
+        panels_menu.addSeparator()
+        for action in self._panel_actions:
+            panels_menu.addAction(action)
 
         settings_menu = self.menuBar().addMenu(strings.label_for("menu_settings"))
         settings_menu.addAction(self.action_settings)

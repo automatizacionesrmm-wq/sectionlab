@@ -169,6 +169,8 @@ UI: dict[str, str] = {
     "short_settings": "Opciones",
     "panels": "Paneles",
     "panels_tip": "Muestra u oculta los paneles (F9); arrástralos para moverlos",
+    "panels_all": "Mostrar todos los paneles",
+    "panels_hidden_hint": "Paneles ocultos · F9 o Ver → Paneles los recupera",
     "hide_panel": "Ocultar panel",
     "hint_navigate": "Rueda: acercar/alejar · botón central: desplazar · doble clic central: ajustar",
     "theme": "Tema",
