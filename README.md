@@ -71,6 +71,16 @@ not committed.
 
 ## Windows packaging
 
+### Download a ready-made build (no toolchain needed)
+
+Every push to `main` builds the bundle on a Windows runner:
+[`.github/workflows/windows-build.yml`](.github/workflows/windows-build.yml). Open the
+**Actions** tab, pick the newest `windows-build` run and download the `SectionLab-windows`
+artifact: a ZIP with `SectionLab.exe` that needs no Python. The run fails if the frozen bundle
+does not pass `--self-test`, so a green artifact is a working build.
+
+### Build it yourself
+
 ```powershell
 tools\build_windows.ps1
 ```
