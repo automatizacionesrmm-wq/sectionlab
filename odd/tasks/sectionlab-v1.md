@@ -261,6 +261,13 @@ def load(path: str | Path) -> tuple[Section, Unit]
   the bundle also starts offscreen once the host `libEGL` is injected, the same host limitation
   `tools/dev.sh` works around. PyInstaller cannot cross-compile, so the actual Windows ZIP has
   to be produced on Windows by `tools\build_windows.ps1`.
+- **L11** Windows build without a Windows machine: `.github/workflows/windows-build.yml` builds
+  the bundle on `windows-latest`, runs the frozen `SectionLab.exe --self-test` (collecting the
+  report through `SECTIONLAB_SELFTEST_FILE`, because a windowed executable has no stdout, and
+  failing the run on any mismatch), and uploads `SectionLab-<version>-windows.zip` as the
+  `SectionLab-windows` artifact. Run 42547271140 succeeded: `area=20000.000000`,
+  `ix=66666666.666668`, artifact 110 MB / 1193 entries with `SectionLab.exe` plus `_internal`.
+  The local `tools/build_windows.ps1` remains the offline alternative.
 - **L10** Correction: the first implementation shipped a "convert template to free geometry"
   action that spec S10 and S12 explicitly defer to v2. It was removed before release; the
   second mode button now starts a new empty free drawing and never converts a template.
