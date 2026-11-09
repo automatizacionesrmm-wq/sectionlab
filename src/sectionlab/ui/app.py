@@ -8,11 +8,12 @@ Validation blocks calculation with Spanish messages (spec S13, S15, D6).
 from __future__ import annotations
 
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QPointF, QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QProcess, QSize, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,10 +38,19 @@ from sectionlab.core.document import (
     load,
     save,
 )
+from sectionlab import __version__
 from sectionlab.core.engine import InvalidSectionError, SectionProperties, calculate
 from sectionlab.core.model import Contour, Section
 from sectionlab.core.templates import TemplateKind, TemplateParameterError, build_section
 from sectionlab.core.units import Unit
+from sectionlab.core.update import (
+    REPOSITORY,
+    Release,
+    UpdateError,
+    download,
+    fetch_latest,
+    install_code,
+)
 from sectionlab.core.validation import ValidationIssue, validate_section
 from sectionlab.ui import strings
 from sectionlab.ui.canvas import INNER, OUTER, CanvasView
@@ -55,9 +65,13 @@ from sectionlab.ui.settings import (
 )
 from sectionlab.ui.template_panel import TemplatePanel
 from sectionlab.ui.theme import Theme, apply_theme, tokens
+from sectionlab.ui.updater import UpdateBanner, UpdateChecker, UpdateDownloader
 from sectionlab.ui.vertex_table import VertexTable
 
 APP_NAME = strings.UI["window_title"]
+WINDOW_TITLE = f"{APP_NAME} {__version__}"
+# The automatic check waits a moment, so the window paints before the network is touched.
+AUTO_CHECK_DELAY_MS = 1500
 FILE_FILTER = f"SectionLab (*{FILE_EXTENSION})"
 CSV_FILTER = "CSV (*.csv)"
 PANEL_WIDTH = 360
@@ -127,7 +141,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, settings: AppSettings | None = None, *, interactive: bool = True) -> None:
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(WINDOW_TITLE)
         self.resize(1280, 820)
 
         self._interactive = interactive
@@ -140,6 +154,16 @@ class MainWindow(QMainWindow):
         self._last_error: str | None = None
         self._template_kind: str | None = None
         self._template_mode = True
+        self._fetch = fetch_latest
+        self._download = download
+        self._opener = None
+        self._checker: UpdateChecker | None = None
+        self._downloader: UpdateDownloader | None = None
+        self._updates_dir: Path | None = None
+        self._relaunch = _relaunch_application
+        self._open_installer = _open_installer
+        self._automatic_check = False
+        self._release: Release | None = None
         self._icon_targets: list[tuple[QAction, str]] = []
         self._glyphs: list[tuple[QLabel, str]] = []
         self._docks: list[QDockWidget] = []
@@ -187,16 +211,26 @@ class MainWindow(QMainWindow):
         self.vertex_table.vertexActivated.connect(self.canvas.select_vertex)
         self.canvas.undo_stack().indexChanged.connect(self._on_undo_index_changed)
 
+        self.update_banner.updateRequested.connect(self.apply_update)
         self._sync_undo_actions()
         self._sync_template_dock()
         self._refresh_displays()
         self._message_label.setText(strings.label_for("ready"))
+        if self._interactive:
+            QTimer.singleShot(AUTO_CHECK_DELAY_MS, lambda: self.check_for_updates(automatic=True))
 
     # ------------------------------------------------------------------ construction
 
     def _build_layout(self) -> None:
         """Give the drawing every pixel, and let each inspector dock float or move."""
-        self.setCentralWidget(self.canvas)
+        central = QWidget(self)
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        self.update_banner = UpdateBanner(central)
+        central_layout.addWidget(self.update_banner)
+        central_layout.addWidget(self.canvas)
+        self.setCentralWidget(central)
         self.setDockOptions(
             QMainWindow.DockOption.AllowNestedDocks
             | QMainWindow.DockOption.AllowTabbedDocks
@@ -442,6 +476,11 @@ class MainWindow(QMainWindow):
         self.action_theme.setShortcut(QKeySequence("Ctrl+Shift+T"))
         self.action_theme.triggered.connect(self.toggle_theme)
 
+        self.action_check_updates = QAction(strings.label_for("check_updates"), self)
+        self.action_check_updates.triggered.connect(lambda: self.check_for_updates())
+        self.action_about = QAction(strings.label_for("about"), self)
+        self.action_about.triggered.connect(self.show_about)
+
         self.action_panels = QAction(strings.label_for("panels_all"), self)
         self.action_panels.setCheckable(True)
         self.action_panels.setChecked(True)
@@ -486,6 +525,10 @@ class MainWindow(QMainWindow):
 
         settings_menu = self.menuBar().addMenu(strings.label_for("menu_settings"))
         settings_menu.addAction(self.action_settings)
+
+        help_menu = self.menuBar().addMenu(strings.label_for("menu_help"))
+        help_menu.addAction(self.action_check_updates)
+        help_menu.addAction(self.action_about)
 
     def _decorate_toolbar(self) -> None:
         """Replace the flat toolbar with icon groups and a primary calculate button."""
@@ -628,6 +671,16 @@ class MainWindow(QMainWindow):
             self.canvas.fit_to_content()
         self._template_kind = kind
         self._template_mode = True
+        self._fetch = fetch_latest
+        self._download = download
+        self._opener = None
+        self._checker: UpdateChecker | None = None
+        self._downloader: UpdateDownloader | None = None
+        self._updates_dir: Path | None = None
+        self._relaunch = _relaunch_application
+        self._open_installer = _open_installer
+        self._automatic_check = False
+        self._release: Release | None = None
         self.template_panel.set_kind(kind)
         self._path = None
         self._set_message(f"{strings.label_for("applied")}: {strings.label_for(kind)}")
@@ -851,6 +904,178 @@ class MainWindow(QMainWindow):
         self.canvas.set_value_highlight(None)
         self._sync_undo_actions()
 
+    # ------------------------------------------------------------------ updates
+
+    def check_for_updates(self, *, automatic: bool = False) -> bool:
+        """Ask GitHub for the newest release in the background (spec S2)."""
+        if self._checker is not None and self._checker.isRunning():
+            return False
+        self._automatic_check = automatic
+        if not automatic:
+            self._set_message(strings.label_for("checking_updates"))
+        checker = UpdateChecker(self._fetch, __version__, self)
+        checker.offered.connect(self._on_release_offered)
+        checker.upToDate.connect(self._on_up_to_date)
+        checker.failed.connect(self._on_check_failed)
+        checker.finished.connect(self._on_checker_finished)
+        self._checker = checker
+        checker.start()
+        return True
+
+    def offered_release(self) -> Release | None:
+        """The release waiting to be installed, if the banner is showing one."""
+        return self._release
+
+    def _on_release_offered(self, release: Release) -> None:
+        self._release = release
+        self.update_banner.offer(release.version)
+
+    def _on_up_to_date(self, release: Release) -> None:
+        self._release = None
+        self.update_banner.dismiss()
+        if not self._automatic_check:
+            self._set_message(f"{strings.label_for('up_to_date')} ({release.version})")
+
+    def _on_check_failed(self, code: str) -> None:
+        # An automatic check never nags: offline is not an error the user must see (spec S7).
+        if not self._automatic_check:
+            self._set_message(strings.update_message(code))
+
+    def _on_checker_finished(self) -> None:
+        checker = self._checker
+        self._checker = None
+        if checker is not None:
+            checker.deleteLater()
+
+    def updates_dir(self) -> Path:
+        """Where downloads land: the user's application data, never the installation."""
+        if self._updates_dir is not None:
+            return self._updates_dir
+        base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        return Path(base or tempfile.gettempdir()) / "updates"
+
+    def apply_update(self) -> bool:
+        """Download the offered release and, when it is a code patch, install it (spec S4)."""
+        release = self._release
+        if release is None or self._downloader is not None:
+            return False
+        asset = release.code()
+        if asset is None:
+            return self._offer_installer(release)
+        target = self.updates_dir() / asset.name
+        self.update_banner.set_busy(True)
+        self.update_banner.offer_version(
+            f"{strings.label_for('update_downloading')} {release.version}…"
+        )
+        downloader = UpdateDownloader(asset, target, self._opener, parent=self)
+        downloader.ready.connect(self._on_patch_downloaded)
+        downloader.failed.connect(self._on_update_failed)
+        downloader.finished.connect(self._on_downloader_finished)
+        self._downloader = downloader
+        downloader.start()
+        return True
+
+    def _on_downloader_finished(self) -> None:
+        downloader = self._downloader
+        self._downloader = None
+        if downloader is not None:
+            downloader.deleteLater()
+
+    def _on_update_failed(self, code: str) -> None:
+        self.update_banner.set_busy(False)
+        self._set_message(f"{strings.label_for('update_failed')}: {strings.update_message(code)}")
+        if self._interactive:
+            QMessageBox.warning(self, strings.label_for("update_failed"), strings.update_message(code))
+
+    def _on_patch_downloaded(self, path: str) -> None:
+        """Replace the installed package and ask about restarting (specs S4, S5)."""
+        app_dir = self._installation_app_dir()
+        if app_dir is None:
+            self._on_update_failed("not_installed")
+            return
+        self.update_banner.offer_version(strings.label_for("update_applying"))
+        try:
+            install_code(Path(path), app_dir)
+        except UpdateError as error:
+            self._on_update_failed(error.code)
+            return
+        self._release = None
+        self.update_banner.set_busy(False)
+        self.update_banner.offer_version(strings.label_for("update_done"))
+        self._set_message(strings.label_for("update_done"))
+        self._ask_restart()
+
+    def _installation_app_dir(self) -> Path | None:
+        """The folder that holds ``sectionlab``; only a frozen install may be replaced."""
+        if not getattr(sys, "frozen", False):
+            return None
+        package = Path(__file__).resolve().parent
+        if package.name != "sectionlab":
+            return None
+        return package.parent
+
+    def _ask_restart(self) -> None:
+        if not self._interactive:
+            return
+        answer = QMessageBox.question(
+            self,
+            strings.label_for("update_restart_title"),
+            f"{strings.label_for('update_done')}.\n\n{strings.label_for('update_restart_question')}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.restart_application()
+
+    def restart_application(self) -> bool:
+        """Re-launch the same executable and close this window (spec S5)."""
+        if not getattr(sys, "frozen", False):
+            return False
+        if not self._relaunch():
+            return False
+        self.close()
+        return True
+
+    def _offer_installer(self, release: Release) -> bool:
+        installer = release.installer()
+        if installer is None:
+            self._on_update_failed("no_asset")
+            return False
+        target = self.updates_dir() / installer.name
+        self.update_banner.set_busy(True)
+        self.update_banner.offer_version(strings.label_for("update_needs_installer"))
+        downloader = UpdateDownloader(installer, target, self._opener, parent=self)
+        downloader.ready.connect(self._on_installer_downloaded)
+        downloader.failed.connect(self._on_update_failed)
+        downloader.finished.connect(self._on_downloader_finished)
+        self._downloader = downloader
+        downloader.start()
+        return True
+
+    def _on_installer_downloaded(self, path: str) -> None:
+        self.update_banner.set_busy(False)
+        self._set_message(f"{strings.label_for('installer_ready')} {path}")
+        if not self._interactive:
+            return
+        QMessageBox.information(
+            self,
+            strings.label_for("about"),
+            f"{strings.label_for('installer_ready')}:\n{path}\n\n"
+            f"{strings.label_for('installer_close_hint')}",
+        )
+        if self._open_installer(path):
+            self.close()
+
+    def about_text(self) -> str:
+        """What the About box says, so the text is testable without a dialog (spec S1)."""
+        return (
+            f"{APP_NAME} {__version__}\n"
+            f"{strings.label_for('about_license')}\n\n"
+            f"{REPOSITORY}"
+        )
+
+    def show_about(self) -> None:
+        QMessageBox.about(self, strings.label_for("about"), self.about_text())
+
     def _on_dimension_rejected(self, code: str) -> None:
         self._set_message(strings.dimension_message(code))
 
@@ -894,6 +1119,18 @@ class MainWindow(QMainWindow):
 
     def _set_message(self, text: str) -> None:
         self._message_label.setText(text)
+
+
+def _relaunch_application() -> bool:
+    """Start the same executable again, detached from this process."""
+    return QProcess.startDetached(sys.executable, sys.argv[1:])
+
+
+def _open_installer(path: str) -> bool:
+    """Run the downloaded installer once this window has closed."""
+    if sys.platform.startswith("win"):
+        return QProcess.startDetached("cmd", ["/c", f'timeout /t 3 >nul & "{path}"'])
+    return QProcess.startDetached(path, [])
 
 
 def _issues_text(issues: list[ValidationIssue] | tuple[ValidationIssue, ...]) -> str:

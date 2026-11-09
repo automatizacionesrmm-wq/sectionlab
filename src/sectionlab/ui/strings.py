@@ -135,6 +135,29 @@ UI: dict[str, str] = {
     "panel_dock": "Volver a la ventana",
     "panel_move_tip": "Arrastra este panel a un costado, o doble clic para separarlo",
     "panel_hide": "Ocultar este panel",
+    "menu_help": "Ayuda",
+    "check_updates": "Buscar actualizaciones",
+    "about": "Acerca de SectionLab",
+    "update_available": "Hay una versión nueva",
+    "update_now": "Actualizar",
+    "update_later": "Más tarde",
+    "up_to_date": "Tienes la última versión",
+    "checking_updates": "Buscando actualizaciones…",
+    "version_label": "Versión",
+    "about_license": "Gratis para uso personal y no comercial",
+    "update_downloading": "Descargando",
+    "update_applying": "Aplicando la actualización…",
+    "update_ready": "Actualización aplicada",
+    "update_restart_question": "¿Reiniciar ahora para usar la versión nueva?",
+    "update_unsaved": "Guarda tu trabajo antes de reiniciar",
+    "update_failed": "No se pudo actualizar",
+    "update_done": "Actualización aplicada: reinicia para usar la versión nueva",
+    "update_needs_installer": "Esa versión trae cambios de base y necesita el instalador",
+    "update_restart_title": "Reiniciar para actualizar",
+    "restart_now": "Reiniciar ahora",
+    "restart_later": "Más tarde",
+    "installer_ready": "El instalador se descargó en",
+    "installer_close_hint": "SectionLab se cerrará y el instalador continuará solo",
     "snap_endpoint": "Extremo",
     "snap_intersection": "Intersección",
     "snap_midpoint": "Punto medio",
@@ -234,6 +257,23 @@ DIMENSION_MESSAGES: dict[str, str] = {
 def dimension_message(code: str) -> str:
     """Spanish text for a refused dimension edit (spec S3)."""
     return DIMENSION_MESSAGES.get(code, _GENERIC_ERROR)
+
+
+UPDATE_MESSAGES: dict[str, str] = {
+    "check_failed": "No se pudo comprobar si hay actualizaciones",
+    "malformed_release": "La respuesta del servidor no se pudo leer",
+    "download_failed": "La descarga se interrumpió; no se cambió nada",
+    "digest_mismatch": "El archivo descargado no coincide con su suma de verificación",
+    "invalid_archive": "El archivo no contiene la aplicación",
+    "install_failed": "No se pudo reemplazar la aplicación; se restauró la anterior",
+    "not_installed": "No se encontró la carpeta de instalación",
+    "no_asset": "Esa versión no publica un parche de código",
+}
+
+
+def update_message(code: str) -> str:
+    """Spanish text for a failed update step (spec S7)."""
+    return UPDATE_MESSAGES.get(code, _GENERIC_ERROR)
 
 
 def error_message(code: str) -> str:

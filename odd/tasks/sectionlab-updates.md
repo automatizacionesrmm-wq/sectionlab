@@ -57,10 +57,10 @@ S10. The frozen runtime must be able to do it: `packaging/launcher.py` declares 
 
 T1. Pure update logic and archive installation, free of Qt. commit: `feat: know when a release is
     newer`
-T2. Version on screen, background check, manual check and the update banner. commit: `feat: say
-    when an update is waiting`
-T3. Download, verify and apply, then ask before restarting; installer fallback. commit: `feat:
-    update from inside the window`
+T2. Version on screen, background check, manual check and the update banner.
+T3. Download, verify and apply, then ask before restarting; installer fallback.
+    T2 and T3 landed together: `feat: update from inside the window`, because the banner, the
+    download thread and the restart prompt share the same wiring in one window class.
 T4. Launcher drift for the network modules, README and version 0.2.0. commit: `build: freeze the
     modules the updater needs`
 T5. Verification, Windows build and release 0.2.0 — the first release that can update itself.

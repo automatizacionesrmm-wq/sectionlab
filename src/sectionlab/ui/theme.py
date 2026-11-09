@@ -240,6 +240,31 @@ QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {{
     selection-background-color: {accent_soft};
     selection-color: {accent_text};
 }}
+QFrame#update_banner {{
+    background: {accent_soft};
+    border: 1px solid {accent_border};
+    border-radius: 8px;
+}}
+QLabel#update_text {{ color: {accent_text}; font-weight: 600; }}
+QPushButton#update_primary {{
+    background: {accent};
+    color: {canvas};
+    border: 0;
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-weight: 600;
+}}
+QPushButton#update_primary:hover {{ background: {accent_hover}; }}
+QPushButton#update_primary:disabled {{ background: {border}; color: {text_faint}; }}
+QPushButton#update_later {{
+    background: transparent;
+    color: {accent_text};
+    border: 1px solid {accent_border};
+    border-radius: 6px;
+    padding: 5px 12px;
+}}
+QPushButton#update_later:hover {{ background: {accent_soft}; }}
+QLabel#settings_version {{ color: {text_dim}; }}
 QLineEdit#dimension_editor {{
     background: {panel_high};
     border: 1px solid {accent};

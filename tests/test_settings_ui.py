@@ -136,3 +136,14 @@ def test_the_dialog_reports_the_chosen_theme() -> None:
     index = dialog._theme.findData(Theme.DARK.value)
     dialog._theme.setCurrentIndex(index)
     assert dialog.values().theme is Theme.DARK
+
+
+def test_the_settings_dialog_shows_the_running_version(qtbot) -> None:
+    from sectionlab import __version__
+    from PySide6.QtWidgets import QLabel
+
+    dialog = SettingsDialog(AppSettings())
+    qtbot.addWidget(dialog)
+    label = dialog.findChild(QLabel, "settings_version")
+    assert label is not None
+    assert label.text() == f"{strings.label_for('version_label')} {__version__}"

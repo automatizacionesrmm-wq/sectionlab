@@ -10,11 +10,13 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QLabel,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from sectionlab import __version__
 from sectionlab.core.precision import DEFAULT_DECIMALS, MAX_DECIMALS, MIN_DECIMALS
 from sectionlab.core.units import Unit
 from sectionlab.ui import strings
@@ -104,8 +106,12 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        version = QLabel(f"{strings.label_for('version_label')} {__version__}", self)
+        version.setObjectName("settings_version")
+
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(version)
         layout.addWidget(buttons)
 
     def values(self) -> AppSettings:

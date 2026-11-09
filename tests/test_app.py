@@ -249,7 +249,10 @@ def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
 
 
 def test_the_drawing_fills_the_window(window: MainWindow) -> None:
-    assert window.centralWidget() is window.canvas
+    # The central widget holds the update banner above the drawing, so the drawing keeps
+    # every pixel the banner is not using.
+    assert window.canvas.parentWidget() is window.centralWidget()
+    assert window.update_banner.parentWidget() is window.centralWidget()
 
 
 def test_every_inspector_is_a_movable_dock(window: MainWindow) -> None:
@@ -539,3 +542,179 @@ def test_selecting_a_vertex_on_the_drawing_selects_its_row(window: MainWindow) -
     window.canvas.vertexSelected.connect(lambda contour, index: seen.append((contour, index)))
     window.canvas.select_vertex("outer", 2)
     assert seen == []
+
+
+# ------------------------------------------------------- in-app updates (specs S1-S3, S7)
+
+
+def rectangle_release(version: str = "9.9.9"):
+    from sectionlab.core.update import Asset, Release
+
+    return Release(
+        version=version,
+        tag=f"v{version}",
+        notes="notas",
+        assets=(
+            Asset(name=f"SectionLab-{version}-code.zip", url="https://example.test/code.zip"),
+        ),
+    )
+
+
+def test_the_title_and_the_about_box_name_the_running_version(window: MainWindow) -> None:
+    from sectionlab import __version__
+
+    assert __version__ in window.windowTitle()
+    text = window.about_text()
+    assert __version__ in text
+    assert "github.com/automatizacionesrmm-wq/sectionlab" in text
+    assert strings.label_for("about_license") in text
+
+
+def test_a_newer_release_is_announced_without_a_dialog(window: MainWindow, qtbot) -> None:
+    window._fetch = lambda: rectangle_release("9.9.9")
+    assert window.update_banner.isHidden()
+    assert window.check_for_updates() is True
+    qtbot.waitUntil(lambda: not window.update_banner.isHidden(), timeout=2000)
+    assert "9.9.9" in window.update_banner.version_text()
+    assert strings.label_for("update_available") in window.update_banner.version_text()
+    assert window.offered_release().version == "9.9.9"
+
+
+def test_lying_about_the_version_offers_nothing(window: MainWindow, qtbot) -> None:
+    from sectionlab import __version__
+
+    window._fetch = lambda: rectangle_release(__version__)
+    window.check_for_updates()
+    qtbot.waitUntil(lambda: window._checker is None, timeout=2000)
+    assert window.update_banner.isHidden()
+    assert window.offered_release() is None
+    assert strings.label_for("up_to_date") in window._message_label.text()
+
+
+def test_mas_tarde_hides_the_banner_for_this_session(window: MainWindow, qtbot) -> None:
+    window._fetch = lambda: rectangle_release()
+    window.check_for_updates()
+    qtbot.waitUntil(lambda: not window.update_banner.isHidden(), timeout=2000)
+    window.update_banner._later.click()
+    assert window.update_banner.isHidden()
+    assert window.offered_release() is not None
+
+
+def test_an_automatic_check_that_fails_says_nothing(window: MainWindow, qtbot) -> None:
+    from sectionlab.core.update import UpdateError
+
+    def offline():
+        raise UpdateError("check_failed")
+
+    window._fetch = offline
+    before = window._message_label.text()
+    window.check_for_updates(automatic=True)
+    qtbot.waitUntil(lambda: window._checker is None, timeout=2000)
+    assert window._message_label.text() == before
+    assert window.update_banner.isHidden()
+
+
+def test_a_manual_check_that_fails_explains_itself(window: MainWindow, qtbot) -> None:
+    from sectionlab.core.update import UpdateError
+
+    def offline():
+        raise UpdateError("check_failed")
+
+    window._fetch = offline
+    window.check_for_updates()
+    qtbot.waitUntil(lambda: window._checker is None, timeout=2000)
+    assert window._message_label.text() == strings.update_message("check_failed")
+
+
+def test_the_help_menu_offers_both_entries(window: MainWindow) -> None:
+    menus = {action.text(): action.menu() for action in window.menuBar().actions()}
+    help_menu = menus[strings.label_for("menu_help")]
+    labels = [action.text() for action in help_menu.actions()]
+    assert strings.label_for("check_updates") in labels
+    assert strings.label_for("about") in labels
+
+
+# ------------------------------------------------- applying an update (specs S4-S6)
+
+
+def code_archive(path, version: str = "9.9.9"):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as bundle:
+        bundle.writestr("sectionlab/__init__.py", f'__version__ = "{version}"\n')
+        bundle.writestr("sectionlab/nuevo.py", "nuevo\n")
+    return path
+
+
+@pytest.fixture()
+def installed(tmp_path, monkeypatch):
+    app_dir = tmp_path / "SectionLab" / "app"
+    (app_dir / "sectionlab").mkdir(parents=True)
+    (app_dir / "sectionlab" / "__init__.py").write_text('__version__ = "0.1.2"\n', encoding="utf-8")
+    monkeypatch.setattr(MainWindow, "_installation_app_dir", lambda self: app_dir)
+    return app_dir
+
+
+def test_applying_a_patch_replaces_the_package_and_keeps_a_backup(
+    window: MainWindow, installed, tmp_path
+) -> None:
+    archive = code_archive(tmp_path / "code.zip")
+    window._release = rectangle_release("9.9.9")
+    window._on_patch_downloaded(str(archive))
+    assert (installed / "sectionlab" / "__init__.py").read_text(encoding="utf-8") == '__version__ = "9.9.9"\n'
+    assert (installed / "sectionlab.bak" / "__init__.py").is_file()
+    assert strings.label_for("update_done") in window._message_label.text()
+    assert window.offered_release() is None
+
+
+def test_a_broken_archive_leaves_the_installation_alone(window: MainWindow, installed, tmp_path) -> None:
+    broken = tmp_path / "code.zip"
+    broken.write_bytes(b"no es un zip")
+    window._release = rectangle_release()
+    window._on_patch_downloaded(str(broken))
+    assert (installed / "sectionlab" / "__init__.py").read_text(encoding="utf-8") == '__version__ = "0.1.2"\n'
+    assert not (installed / "sectionlab.bak").exists()
+    assert strings.label_for("update_failed") in window._message_label.text()
+
+
+def test_a_development_checkout_is_never_patched(window: MainWindow, tmp_path) -> None:
+    window._release = rectangle_release()
+    window._on_patch_downloaded(str(code_archive(tmp_path / "code.zip")))
+    assert strings.update_message("not_installed") in window._message_label.text()
+
+
+def test_restarting_relaunches_the_same_executable(window: MainWindow, monkeypatch) -> None:
+    import sys as system
+
+    launched: list[bool] = []
+
+    def relaunch() -> bool:
+        launched.append(True)
+        return True
+
+    monkeypatch.setattr(window, "_relaunch", relaunch)
+    monkeypatch.setattr(system, "frozen", True, raising=False)
+    assert window.restart_application() is True
+    assert launched == [True]
+
+
+def test_no_release_means_nothing_to_apply(window: MainWindow) -> None:
+    assert window.apply_update() is False
+
+
+def test_a_release_without_a_code_archive_offers_the_installer(window: MainWindow, qtbot, tmp_path) -> None:
+    from sectionlab.core.update import Asset, Release
+
+    installer_bytes = b"instalador"
+    window._opener = lambda url, headers: __import__("io").BytesIO(installer_bytes)
+    window._updates_dir = tmp_path / "updates"
+    window._release = Release(
+        version="9.9.9",
+        tag="v9.9.9",
+        assets=(Asset(name="SectionLab-9.9.9-setup.exe", url="https://example.test/setup.exe"),),
+    )
+    assert window.apply_update() is True
+    qtbot.waitUntil(lambda: window._downloader is None, timeout=2000)
+    downloaded = tmp_path / "updates" / "SectionLab-9.9.9-setup.exe"
+    assert downloaded.read_bytes() == installer_bytes
+    assert strings.label_for("installer_ready") in window._message_label.text()
