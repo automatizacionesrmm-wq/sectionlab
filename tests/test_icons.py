@@ -52,3 +52,30 @@ def test_the_toolbar_icons_exist() -> None:
         "moon",
     }
     assert expected <= set(icons.names())
+
+
+def ink_box(image) -> tuple[int, int, int, int]:
+    xs = [
+        (x, y)
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixelColor(x, y).alpha() > 40
+    ]
+    return (
+        min(x for x, _ in xs),
+        min(y for _, y in xs),
+        max(x for x, _ in xs),
+        max(y for _, y in xs),
+    )
+
+
+def test_every_icon_fills_its_box_without_being_clipped() -> None:
+    """A doubled scale used to clip every icon down to its top-left corner."""
+    size = 32
+    for name in icons.names():
+        image = icons.icon(name, "#ffffff", size).pixmap(size, size).toImage()
+        left, top, right, bottom = ink_box(image)
+        assert (left, top, right, bottom) != (size - 1, size - 1, size - 1, size - 1), name
+        assert left >= 1 and top >= 1, name
+        assert right <= size - 2 and bottom <= size - 2, name
+        assert max(right - left, bottom - top) >= 0.4 * size, name

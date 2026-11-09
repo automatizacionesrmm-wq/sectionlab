@@ -106,3 +106,12 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   is what the old build did and it produced «Hay vértices en la misma posición». `add_vertex`
   now closes the polyline when the appended point coincides with the first one and there are
   three or more vertices; anything else is appended as before.
+- **L13** User, verbatim: «la pantalla de dibujo sea tan chica deberia ser la mas grande y
+  tener la barra de propiedades y de editar en un lugar y que se pueda mover y ajustar donde
+  quiera agrandar y achicar». The fixed `QSplitter` plus scrolling side column became three
+  `QDockWidget`s (movable, floatable, closable) with the canvas as the central widget, and
+  `Ver → Paneles` (`F9`) hides them all. While capturing the result the icon sheet showed a
+  second defect: `icon()` scaled its 24-unit drawing by `size * ratio / _GRID` on a pixmap
+  that already carried the device pixel ratio, so every icon was drawn at twice its size and
+  clipped to its top-left fragment. Fixed to `size / _GRID`, with
+  `test_every_icon_fills_its_box_without_being_clipped` pinning it (RED before, GREEN after).

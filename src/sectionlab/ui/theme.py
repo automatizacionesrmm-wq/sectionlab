@@ -191,6 +191,27 @@ QStatusBar::item {{ border: 0; }}
 
 QSplitter::handle {{ background: {border}; width: 1px; height: 1px; }}
 
+QDockWidget {{ background: {panel}; border: 1px solid {border}; }}
+QDockWidget::title {{ background: {panel_alt}; padding: 0; border: 0; }}
+QDockWidget QFrame#panel {{
+    border-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}}
+QWidget#panel_header {{
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}}
+QDockWidget::close-button, QDockWidget::float-button {{
+    background: transparent;
+    border: 0;
+    padding: 0;
+}}
+QMainWindow::separator {{ background: {border}; width: 1px; height: 1px; }}
+QMainWindow::separator:hover {{ background: {accent}; }}
+QToolButton#dock_close {{ border: 0; background: transparent; padding: 2px; }}
+QToolButton#dock_close:hover {{ background: {danger_soft}; border-radius: 4px; }}
+
 QScrollArea {{ border: 0; background: {panel}; }}
 QScrollBar:vertical {{ background: {panel}; width: 10px; margin: 0; }}
 QScrollBar::handle:vertical {{ background: {border}; border-radius: 5px; min-height: 24px; }}

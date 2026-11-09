@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from PySide6.QtWidgets import QDockWidget
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_full
@@ -243,3 +244,37 @@ def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
     assert len(actions) == 14
     for action in actions:
         assert not action.icon().isNull(), action.text()
+
+
+def test_the_drawing_fills_the_window(window: MainWindow) -> None:
+    assert window.centralWidget() is window.canvas
+
+
+def test_every_inspector_is_a_movable_dock(window: MainWindow) -> None:
+    assert len(window._docks) == 3
+    for dock in window._docks:
+        features = dock.features()
+        assert features & QDockWidget.DockWidgetFeature.DockWidgetMovable
+        assert features & QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        assert features & QDockWidget.DockWidgetFeature.DockWidgetClosable
+
+
+def test_the_drawing_keeps_the_window_when_the_panels_hide(window: MainWindow) -> None:
+    window.set_panels_visible(False)
+    assert not window.panels_visible()
+    assert not window.action_panels.isChecked()
+    assert window.canvas.isVisibleTo(window)
+    window.set_panels_visible(True)
+    assert window.panels_visible()
+    assert window.action_panels.isChecked()
+
+
+def test_hiding_one_panel_unchecks_the_toggle(window: MainWindow, qtbot) -> None:
+    window.show()
+    with qtbot.waitExposed(window):
+        pass
+    for dock in window._docks:
+        dock.hide()
+    assert not window.action_panels.isChecked()
+    window._docks[2].show()
+    assert window.action_panels.isChecked()

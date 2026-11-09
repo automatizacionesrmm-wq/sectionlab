@@ -26,6 +26,9 @@ truth for scope, behavior and conventions.
   with a primary **Calcular** button, and a canvas that draws a grid with labelled axes, a
   live crosshair, contour fill and vertex handles. Icons are drawn in code, so they recolour
   with the theme and stay sharp on high-density screens.
+- The drawing is the central widget and the three inspectors (plantilla, vértices, resultados)
+  are docks: drag a title bar to move one, drag it out of the window to float it, drag the
+  separators to resize, or press `F9` to hide them all and give the drawing the whole window.
 - UI in Spanish; code, comments, commits and internal docs in English.
 
 ## Deferred to v2
@@ -47,6 +50,8 @@ PDF/PNG reports, **DXF import/export**.
 2. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.
+   The inspectors are docks, so you can float them, move them to the other side or resize
+   them, and `F9` (**Ver → Paneles**) hides every panel to leave the drawing alone.
 3. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
    Spanish and name the offending geometry; saving an invalid drawing is still allowed.
 4. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;

@@ -106,7 +106,9 @@ def icon(name: str, color: str = "#c9d4e4", size: int = 20) -> QIcon:
 
     painter = QPainter(pixmap)
     try:
-        _draw(painter, name, color, size * ratio / _GRID)
+        # The pixmap carries the device pixel ratio, so the painter already works in logical
+        # pixels: scaling by `size / _GRID` is what makes the 24-unit drawing fit `size`.
+        _draw(painter, name, color, size / _GRID)
     finally:
         painter.end()
     return QIcon(pixmap)

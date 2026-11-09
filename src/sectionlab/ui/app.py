@@ -23,8 +23,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QScrollArea,
-    QSplitter,
+    QDockWidget,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -60,6 +59,8 @@ from sectionlab.ui.vertex_table import VertexTable
 APP_NAME = strings.UI["window_title"]
 FILE_FILTER = f"SectionLab (*{FILE_EXTENSION})"
 CSV_FILTER = "CSV (*.csv)"
+PANEL_WIDTH = 360
+PANEL_MIN_WIDTH = 240
 
 
 class MainWindow(QMainWindow):
@@ -68,7 +69,7 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings | None = None, *, interactive: bool = True) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1180, 760)
+        self.resize(1280, 820)
 
         self._interactive = interactive
         self._settings = settings or load_settings()
@@ -81,6 +82,8 @@ class MainWindow(QMainWindow):
         self._template_kind: str | None = None
         self._icon_targets: list[tuple[QAction, str]] = []
         self._glyphs: list[tuple[QLabel, str]] = []
+        self._docks: list[QDockWidget] = []
+        self._dock_closers: list[QToolButton] = []
 
         self.canvas = CanvasView(self)
         self.template_panel = TemplatePanel(self)
@@ -121,59 +124,104 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ construction
 
     def _build_layout(self) -> None:
-        dock = QWidget(self)
-        dock_layout = QVBoxLayout(dock)
-        dock_layout.setContentsMargins(8, 8, 8, 8)
-        dock_layout.setSpacing(8)
-        dock_layout.addWidget(
-            self._panel(strings.label_for("template_mode"), "template", self.template_panel)
+        """Give the drawing every pixel, and let each inspector dock float or move."""
+        self.setCentralWidget(self.canvas)
+        self.setDockOptions(
+            QMainWindow.DockOption.AllowNestedDocks
+            | QMainWindow.DockOption.AllowTabbedDocks
+            | QMainWindow.DockOption.AnimatedDocks
         )
-        dock_layout.addWidget(
-            self._panel(strings.label_for("vertex_table"), "vertex", self.vertex_table), 2
+        specs = (
+            ("template", strings.label_for("template_mode"), "template", self.template_panel, 230),
+            ("vertices", strings.label_for("vertex_table"), "vertex", self.vertex_table, 340),
+            ("results", strings.label_for("results"), "calculate", self.results_table, 300),
         )
-        dock_layout.addWidget(
-            self._panel(strings.label_for("results"), "calculate", self.results_table), 3
+        previous: QDockWidget | None = None
+        for name, title, glyph, content, _height in specs:
+            dock = self._dock(name, title, glyph, content)
+            if previous is None:
+                self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            else:
+                self.splitDockWidget(previous, dock, Qt.Orientation.Vertical)
+            previous = dock
+        self.resizeDocks(self._docks, [PANEL_WIDTH] * len(self._docks), Qt.Orientation.Horizontal)
+        self.resizeDocks(self._docks, [spec[4] for spec in specs], Qt.Orientation.Vertical)
+
+    def _dock(self, name: str, title: str, glyph: str, content: QWidget) -> QDockWidget:
+        """A movable, floatable, resizable inspector holding one panel."""
+        dock = QDockWidget(title, self)
+        dock.setObjectName(f"dock_{name}")
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        dock.setMinimumWidth(PANEL_MIN_WIDTH)
+        dock.setTitleBarWidget(self._panel_header(dock, title, glyph))
+        dock.setWidget(self._panel_body(dock, content))
+        dock.visibilityChanged.connect(self._sync_panels_action)
+        self._docks.append(dock)
+        return dock
 
-        side = QScrollArea(self)
-        side.setWidgetResizable(True)
-        side.setWidget(dock)
-        side.setFrameShape(QFrame.Shape.NoFrame)
+    def _panel_header(self, dock: QDockWidget, title: str, glyph: str) -> QWidget:
+        header = QWidget(dock)
+        header.setObjectName("panel_header")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(10, 6, 6, 6)
+        layout.setSpacing(7)
+        mark = QLabel(header)
+        layout.addWidget(mark)
+        caption = QLabel(title.upper(), header)
+        caption.setObjectName("panel_title")
+        layout.addWidget(caption)
+        layout.addStretch(1)
+        closer = QToolButton(header)
+        closer.setObjectName("dock_close")
+        closer.setAutoRaise(True)
+        closer.setIconSize(QSize(14, 14))
+        closer.setFixedSize(20, 20)
+        closer.setCursor(Qt.CursorShape.PointingHandCursor)
+        closer.setToolTip(strings.label_for("hide_panel"))
+        closer.clicked.connect(dock.hide)
+        layout.addWidget(closer)
+        self._glyphs.append((mark, glyph))
+        self._dock_closers.append(closer)
+        return header
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        splitter.addWidget(self.canvas)
-        splitter.addWidget(side)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([760, 410])
-        splitter.setChildrenCollapsible(False)
-        self.setCentralWidget(splitter)
-
-    def _panel(self, title: str, glyph: str, content: QWidget, stretch: int = 1) -> QFrame:
-        """A titled inspector card: icon plus caption over the widget it describes."""
-        frame = QFrame(self)
+    def _panel_body(self, dock: QDockWidget, content: QWidget) -> QFrame:
+        """The framed card below a dock's title bar."""
+        frame = QFrame(dock)
         frame.setObjectName("panel")
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
-        header = QWidget(frame)
-        header.setObjectName("panel_header")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(10, 6, 10, 6)
-        header_layout.setSpacing(7)
-        mark = QLabel(header)
-        header_layout.addWidget(mark)
-        caption = QLabel(title.upper(), header)
-        caption.setObjectName("panel_title")
-        header_layout.addWidget(caption)
-        header_layout.addStretch(1)
-        layout.addWidget(header)
-
         content.setParent(frame)
-        layout.addWidget(content, stretch)
-        self._glyphs.append((mark, glyph))
+        layout.addWidget(content)
         return frame
+
+    def panels_visible(self) -> bool:
+        return any(not dock.isHidden() for dock in self._docks)
+
+    def set_panels_visible(self, visible: bool) -> None:
+        """Show or hide every inspector at once, leaving the drawing alone on screen."""
+        for dock in self._docks:
+            dock.setVisible(visible)
+        if hasattr(self, "action_panels"):
+            self.action_panels.blockSignals(True)
+            self.action_panels.setChecked(visible)
+            self.action_panels.blockSignals(False)
+        self._sync_panels_action()
+
+    def _sync_panels_action(self, *_args: object) -> None:
+        if not hasattr(self, "action_panels"):
+            return
+        visible = self.panels_visible()
+        self.action_panels.blockSignals(True)
+        self.action_panels.setChecked(visible)
+        self.action_panels.blockSignals(False)
 
     def _build_actions(self) -> None:
         toolbar = self.addToolBar(strings.label_for("main_toolbar"))
@@ -227,6 +275,13 @@ class MainWindow(QMainWindow):
         self.action_theme.setShortcut(QKeySequence("Ctrl+Shift+T"))
         self.action_theme.triggered.connect(self.toggle_theme)
 
+        self.action_panels = QAction(strings.label_for("panels"), self)
+        self.action_panels.setCheckable(True)
+        self.action_panels.setChecked(True)
+        self.action_panels.setShortcut(QKeySequence("F9"))
+        self.action_panels.setStatusTip(strings.label_for("panels_tip"))
+        self.action_panels.toggled.connect(self.set_panels_visible)
+
         self.action_settings = QAction(strings.label_for("settings"), self)
         self.action_settings.triggered.connect(self.open_settings_dialog)
 
@@ -252,6 +307,7 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.action_ortho)
         view_menu.addAction(self.action_theme)
+        view_menu.addAction(self.action_panels)
 
         settings_menu = self.menuBar().addMenu(strings.label_for("menu_settings"))
         settings_menu.addAction(self.action_settings)
@@ -329,6 +385,8 @@ class MainWindow(QMainWindow):
             action.setIconText(strings.label_for(f"short_{name}"))
         for label, name in self._glyphs:
             label.setPixmap(icon(name, palette["text_faint"], 13).pixmap(13, 13))
+        for closer in self._dock_closers:
+            closer.setIcon(icon("close", palette["text_faint"], 14))
 
     # ------------------------------------------------------------------ public state
 
