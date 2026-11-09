@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -24,6 +24,7 @@ from sectionlab.core.units import Unit, from_mm, to_mm
 from sectionlab.ui import strings
 
 _PARAMETER_DECIMALS = 3
+_REBUILD_DELAY_MS = 120
 
 
 class TemplatePanel(QWidget):
@@ -42,25 +43,32 @@ class TemplatePanel(QWidget):
         self._spins: dict[str, QDoubleSpinBox] = {}
         self._mm: dict[str, float] = {}
         self._rendered: dict[str, float] = {}
+        self._loading = False
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(_REBUILD_DELAY_MS)
+        self._timer.timeout.connect(self._emit_applied)
 
         self._kind = QComboBox(self)
         for kind in TemplateKind:
             self._kind.addItem(strings.label_for(kind.value), kind.value)
-        self._kind.currentIndexChanged.connect(self._rebuild_form)
+        self._kind.currentIndexChanged.connect(self._on_kind_changed)
 
-        self._group = QGroupBox(strings.label_for("template_mode"), self)
+        self._group = QGroupBox(self)
         self._form_host = QWidget(self._group)
         self._form = QFormLayout(self._form_host)
-        self._form.setContentsMargins(0, 0, 0, 0)
+        self._form.setContentsMargins(4, 2, 4, 4)
+        self._form.setSpacing(7)
         group_layout = QVBoxLayout(self._group)
         group_layout.addWidget(self._form_host)
 
-        self._apply = QPushButton(strings.label_for("template_mode"), self)
-        self._apply.setText(strings.label_for("apply"))
-
+        self._apply = QPushButton(strings.label_for("apply"), self)
         self._free = QPushButton(strings.label_for("free_mode"), self)
+        self._free.setObjectName("ghost")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
         layout.addWidget(self._kind)
         layout.addWidget(self._group)
         layout.addWidget(self._apply)
@@ -76,29 +84,38 @@ class TemplatePanel(QWidget):
     def set_kind(self, kind: str) -> None:
         index = self._kind.findData(kind)
         if index >= 0:
-            self._kind.setCurrentIndex(index)
+            self._loading = True
+            try:
+                self._kind.setCurrentIndex(index)
+                self._rebuild_form()
+            finally:
+                self._loading = False
 
     def set_unit(self, unit: Unit) -> None:
         """Re-render the parameter values in the new unit without touching the section."""
         self._mm = self.params()
         self._unit = unit
-        for key, spin in self._spins.items():
-            value = round(from_mm(self._mm[key], unit), _PARAMETER_DECIMALS)
-            spin.blockSignals(True)
-            spin.setValue(value)
-            spin.blockSignals(False)
-            self._rendered[key] = value
+        self._loading = True
+        try:
+            for key, spin in self._spins.items():
+                value = round(from_mm(self._mm[key], unit), _PARAMETER_DECIMALS)
+                spin.setValue(value)
+                self._rendered[key] = value
+        finally:
+            self._loading = False
 
     def set_params(self, values: Mapping[str, float]) -> None:
         """Show the given millimetre parameters."""
-        for key, spin in self._spins.items():
-            if key in values:
-                value = round(from_mm(float(values[key]), self._unit), _PARAMETER_DECIMALS)
-                spin.blockSignals(True)
-                spin.setValue(value)
-                spin.blockSignals(False)
-                self._mm[key] = float(values[key])
-                self._rendered[key] = value
+        self._loading = True
+        try:
+            for key, spin in self._spins.items():
+                if key in values:
+                    value = round(from_mm(float(values[key]), self._unit), _PARAMETER_DECIMALS)
+                    spin.setValue(value)
+                    self._mm[key] = float(values[key])
+                    self._rendered[key] = value
+        finally:
+            self._loading = False
 
     def params(self) -> dict[str, float]:
         """The typed parameters, in millimetres.
@@ -132,7 +149,18 @@ class TemplatePanel(QWidget):
             self._spins[param.key] = spin
             self._mm[param.key] = defaults[param.key]
             self._rendered[param.key] = value
+            spin.valueChanged.connect(self._schedule_apply)
             self._form.addRow(strings.label_for(param.key), spin)
+
+    def _on_kind_changed(self) -> None:
+        """Switching template redraws at once: the parameters are already valid defaults."""
+        self._rebuild_form()
+        if not self._loading:
+            self._emit_applied()
+
+    def _schedule_apply(self) -> None:
+        if not self._loading:
+            self._timer.start()
 
     def _emit_applied(self) -> None:
         self.applied.emit(self.kind(), self.params())
