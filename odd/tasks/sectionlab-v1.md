@@ -309,3 +309,7 @@ def load(path: str | Path) -> tuple[Section, Unit]
   `SectionLab-portable` — so a download fetches one file instead of a bundle of three.
   Run 42639306349 on `011c2fa` repeated the green build with the split artifacts:
   `SectionLab-code` 0.04 MB, `SectionLab-installer` 71.3 MB, `SectionLab-portable` 108.55 MB.
+- **L13** Release `v0.1.0` published at tag `011c2fa` (the commit CI built) with the three
+  files as assets — setup 71.81 MB, portable 108.99 MB, code 0.04 MB — authorized explicitly
+  by the user after being asked twice. A Release asset downloads as a plain file, unlike an
+  Actions artifact, which arrives wrapped in a ZIP; that is why the update loop points there.

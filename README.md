@@ -117,9 +117,23 @@ The installer is only needed when the runtime changes (a new dependency, a new P
 [`tools/assemble_app.py`](tools/assemble_app.py) is what copies the package beside the frozen
 executable and writes that archive, locally and in CI.
 
-### Download a ready-made build (no toolchain needed)
+### Install or update (no toolchain needed)
 
-Every push to `main` builds the bundle on a Windows runner:
+The current build is published in
+[Releases](https://github.com/automatizacionesrmm-wq/sectionlab/releases/latest), where the
+files download directly:
+
+1. **`SectionLab-<version>-setup.exe`** — run it once. It installs under your user profile
+   without administrator rights, adds a Start-menu entry and an uninstaller, and a newer setup
+   upgrades the previous installation in place, keeping your preferences.
+2. **`SectionLab-<version>-code.zip`** — the update. Extract the `sectionlab` folder it holds
+   into `app\` of the installation; the next start runs the new code. It is 43 kB, so a change
+   to the program never downloads the runtime again. Run the setup only when the runtime itself
+   changes (a new dependency or Python version).
+3. **`SectionLab-<version>-windows.zip`** — portable copy for a machine where nothing may be
+   installed: unzip and run `SectionLab.exe`.
+
+Every push to `main` also builds these files on a Windows runner:
 [`.github/workflows/windows-build.yml`](.github/workflows/windows-build.yml). Open the
 **Actions** tab, pick the newest `windows-build` run and download the artifact you need:
 `SectionLab-installer` (75 MB), `SectionLab-code` (43 kB) or `SectionLab-portable` (114 MB).
