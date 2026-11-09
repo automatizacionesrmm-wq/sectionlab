@@ -84,3 +84,9 @@ instead of generic Qt widgets, and so the drawing behaves like CAD.
   `windows-latest` finished `success` for `85083d0`, artifact `SectionLab-windows`
   108.59 MB (the frozen `--self-test` gate inside the workflow re-checked the reference
   numbers, so the packaged build computes the same section as the tests).
+- **L10** User, verbatim: «el zoon no quiero scroll quiero porde navegar dentro del canvas como
+  lo hago en autocad acercarme alejarme cnetra asi como lo hago en autocad o los CAD». The view
+  now has no scrollbars: the wheel scales about the cursor, the middle button drags the
+  drawing, a middle double click fits the section, and toolbar Acercar/Alejar zoom about the
+  viewport centre. A fixed large world rect keeps panning free of the content bounds, and
+  `S3` stays satisfied because the navigation is part of the drafting surface.

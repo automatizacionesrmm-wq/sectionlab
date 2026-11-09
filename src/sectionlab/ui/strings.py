@@ -165,6 +165,7 @@ UI: dict[str, str] = {
     "short_fit": "Ajustar",
     "short_theme": "Tema",
     "short_settings": "Opciones",
+    "hint_navigate": "Rueda: acercar/alejar · botón central: desplazar · doble clic central: ajustar",
     "theme": "Tema",
     "theme_dark": "Oscuro",
     "theme_light": "Claro",

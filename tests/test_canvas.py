@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QWheelEvent
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
 from sectionlab.core.snap import SnapKind
-from sectionlab.ui.canvas import GRID_STEPS, INNER, MIN_GRID_PX, OUTER, CanvasView
+from sectionlab.ui.canvas import (
+    GRID_STEPS,
+    INNER,
+    MAX_SCALE,
+    MIN_GRID_PX,
+    MIN_SCALE,
+    OUTER,
+    CanvasView,
+)
 from sectionlab.ui.theme import Theme, tokens
 
 
@@ -294,3 +303,109 @@ def test_switching_theme_keeps_the_geometry(canvas: CanvasView) -> None:
     canvas.apply_palette(tokens(Theme.LIGHT))
     assert canvas.section() == free_section()
     assert len(canvas._nodes) == 4
+
+
+def test_the_view_has_no_scrollbars_and_pans_freely(canvas: CanvasView) -> None:
+    assert canvas.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert canvas.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert canvas.sceneRect().width() >= 100_000.0
+
+
+def test_panning_moves_the_view_by_the_dragged_pixels(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    before = canvas.mapToScene(canvas.viewport().rect().center())
+    canvas.pan_by(40.0, -25.0)
+    after = canvas.mapToScene(canvas.viewport().rect().center())
+    assert after.x() == pytest.approx(before.x() - 40.0 / 2.0, abs=1.0)
+    assert after.y() == pytest.approx(before.y() + 25.0 / 2.0, abs=1.0)
+
+
+def test_dragging_with_the_middle_button_pans(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    before = canvas.mapToScene(canvas.viewport().rect().center())
+
+    def button_event(kind, pos: QPoint) -> QMouseEvent:
+        point = QPointF(pos)
+        return QMouseEvent(
+            kind, point, point, Qt.MouseButton.MiddleButton, Qt.MouseButton.MiddleButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+    start = QPoint(200, 150)
+    canvas.mousePressEvent(button_event(QEvent.Type.MouseButtonPress, start))
+    assert canvas.is_panning()
+    canvas.mouseMoveEvent(button_event(QEvent.Type.MouseMove, start + QPoint(30, 20)))
+    canvas.mouseReleaseEvent(button_event(QEvent.Type.MouseButtonRelease, start + QPoint(30, 20)))
+
+    assert not canvas.is_panning()
+    after = canvas.mapToScene(canvas.viewport().rect().center())
+    assert after.x() == pytest.approx(before.x() - 15.0, abs=1.0)
+    assert after.y() == pytest.approx(before.y() - 10.0, abs=1.0)
+
+
+def test_zooming_keeps_the_point_under_the_cursor(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    anchor = QPoint(180, 120)
+    before = canvas.mapToScene(anchor)
+    canvas.zoom_at(anchor, 1.5)
+    assert canvas.pixels_per_mm() == pytest.approx(3.0)
+    after = canvas.mapToScene(anchor)
+    assert after.x() == pytest.approx(before.x(), abs=0.5)
+    assert after.y() == pytest.approx(before.y(), abs=0.5)
+
+
+def test_the_wheel_zooms_towards_the_cursor(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    position = QPointF(150.0, 100.0)
+    before = canvas.mapToScene(position.toPoint())
+    wheel = QWheelEvent(
+        position,
+        QPointF(canvas.viewport().mapToGlobal(position.toPoint())),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    canvas.wheelEvent(wheel)
+    assert canvas.pixels_per_mm() > 2.0
+    after = canvas.mapToScene(position.toPoint())
+    assert after.x() == pytest.approx(before.x(), abs=0.5)
+    assert after.y() == pytest.approx(before.y(), abs=0.5)
+
+
+def test_zooming_stops_at_the_limits(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    for _ in range(200):
+        canvas.zoom_in()
+    assert canvas.pixels_per_mm() <= MAX_SCALE
+    for _ in range(400):
+        canvas.zoom_out()
+    assert canvas.pixels_per_mm() >= MIN_SCALE
+
+
+def test_double_clicking_with_the_middle_button_fits_the_content(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    near = canvas.pixels_per_mm()
+    point = QPointF(150.0, 100.0)
+    canvas.mouseDoubleClickEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            point,
+            point,
+            Qt.MouseButton.MiddleButton,
+            Qt.MouseButton.MiddleButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert canvas.pixels_per_mm() != pytest.approx(near)
+    assert canvas.transform().m11() > 0.0
+
+
+def test_the_navigation_hint_names_the_mouse_gestures() -> None:
+    from sectionlab.ui import strings
+
+    hint = strings.label_for("hint_navigate")
+    assert "Rueda" in hint and "botón central" in hint

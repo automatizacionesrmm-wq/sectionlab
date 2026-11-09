@@ -43,6 +43,9 @@ NODE_HIT_PX = 9.0
 ZOOM_STEP = 1.15
 MIN_SCALE = 0.01
 MAX_SCALE = 1000.0
+# The view pans freely: a fixed, very large world keeps the scrollbar ranges usable
+# while the scrollbars themselves stay hidden (spec S3).
+WORLD_HALF_MM = 500_000.0
 GRID_STEPS = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0)
 MIN_GRID_PX = 7.0
 
@@ -137,6 +140,18 @@ class CanvasView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setMouseTracking(True)
+        self.setSceneRect(
+            QRectF(
+                -WORLD_HALF_MM,
+                -WORLD_HALF_MM,
+                WORLD_HALF_MM * 2.0,
+                WORLD_HALF_MM * 2.0,
+            )
+        )
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
         self._section = Section(outer=Contour(points=[]))
         self._editable = True
@@ -151,6 +166,7 @@ class CanvasView(QGraphicsView):
         self._snap = None
         self._cursor_scene: QPointF | None = None
         self._snap_marker: QGraphicsEllipseItem | None = None
+        self._pan_origin: QPoint | None = None
         self._rebuild()
 
     # ------------------------------------------------------------------ public API
@@ -291,6 +307,17 @@ class CanvasView(QGraphicsView):
             Qt.AspectRatioMode.KeepAspectRatio,
         )
         self.viewport().update()
+
+    def pan_by(self, dx: float, dy: float) -> None:
+        """Move the drawing with the mouse: positive `dx` drags the scene to the right."""
+        horizontal = self.horizontalScrollBar()
+        vertical = self.verticalScrollBar()
+        horizontal.setValue(horizontal.value() - int(round(dx)))
+        vertical.setValue(vertical.value() - int(round(dy)))
+        self.viewport().update()
+
+    def is_panning(self) -> bool:
+        return self._pan_origin is not None
 
     def reset_view(self) -> None:
         """The starting view: two pixels per millimetre, centred on the model origin."""
@@ -494,6 +521,12 @@ class CanvasView(QGraphicsView):
     # ------------------------------------------------------------- mouse and keys
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_origin = event.position().toPoint()
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.LeftButton and self._editable:
             scene_pos = self.mapToScene(event.position().toPoint())
             node = self._node_at(scene_pos)
@@ -528,6 +561,14 @@ class CanvasView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._pan_origin is not None:
+            current = event.position().toPoint()
+            delta = current - self._pan_origin
+            self._pan_origin = current
+            self.pan_by(delta.x(), delta.y())
+            event.accept()
+            return
+
         scene_pos = self.mapToScene(event.position().toPoint())
         self._cursor_scene = scene_pos
         point, kind = self.snapped_point(scene_pos)
@@ -555,6 +596,12 @@ class CanvasView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.button() == Qt.MouseButton.MiddleButton and self._pan_origin is not None:
+            self._pan_origin = None
+            self.viewport().unsetCursor()
+            event.accept()
+            return
+
         if self._drag is not None and event.button() == Qt.MouseButton.LeftButton:
             contour, index, node, origin = self._drag
             self._drag = None
@@ -566,6 +613,10 @@ class CanvasView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.fit_to_content()
+            event.accept()
+            return
         if self.is_drawing() and event.button() == Qt.MouseButton.LeftButton:
             self.close_contour()
             event.accept()
@@ -591,20 +642,32 @@ class CanvasView(QGraphicsView):
         super().keyPressEvent(event)
 
     def zoom_in(self) -> None:
-        self._zoom(self.transform().m11() * ZOOM_STEP)
+        """Zoom in about the middle of the viewport, as the toolbar does."""
+        self.zoom_at(self.viewport().rect().center(), ZOOM_STEP)
 
     def zoom_out(self) -> None:
-        self._zoom(self.transform().m11() / ZOOM_STEP)
+        """Zoom out about the middle of the viewport."""
+        self.zoom_at(self.viewport().rect().center(), 1.0 / ZOOM_STEP)
 
-    def _zoom(self, scale: float) -> None:
-        if not MIN_SCALE <= scale <= MAX_SCALE:
+    def zoom_at(self, anchor: QPoint, factor: float) -> None:
+        """Scale about a viewport point so the geometry under the cursor stays put."""
+        current = self.transform().m11()
+        target = current * factor
+        if not MIN_SCALE <= target <= MAX_SCALE:
             return
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.scale(scale / self.transform().m11(), scale / self.transform().m11())
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        before = self.mapToScene(anchor)
+        self.scale(factor, factor)
+        after = self.mapToScene(anchor)
+        delta = after - before
+        self.translate(delta.x(), delta.y())
+        self.viewport().update()
 
     def wheelEvent(self, event) -> None:  # noqa: N802 - Qt override
-        if event.angleDelta().y() > 0:
-            self.zoom_in()
-        else:
-            self.zoom_out()
+        steps = event.angleDelta().y() / 120.0
+        if not steps:
+            event.accept()
+            return
+        anchor = event.position().toPoint()
+        self.zoom_at(anchor, ZOOM_STEP**steps)
         event.accept()

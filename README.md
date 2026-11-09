@@ -43,15 +43,18 @@ PDF/PNG reports, **DXF import/export**.
    Or press **Nueva geometría libre** and draw with the mouse: click to add a vertex, click the
    first vertex or press `Enter` to close the contour, `Esc` to cancel. `F8` toggles ortho mode;
    snaps appear for endpoints, intersections, midpoints, centres and perpendicular feet.
-2. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
+2. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
+   middle button drags the view, and a middle double click fits the section on screen. The
+   view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.
+3. **Calcular** (`Ctrl+Enter`) validates and fills the results table. Validation messages are
    Spanish and name the offending geometry; saving an invalid drawing is still allowed.
-3. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
+4. The vertex table mirrors the drawing in the active unit and accepts typed coordinates;
    edits are undoable with `Ctrl+Z`.
-4. **Configuración → Preferencias** changes the active unit and the displayed decimals.
+5. **Configuración → Preferencias** changes the active unit and the displayed decimals.
    Changing the unit only converts the display; the geometry is never recomputed.
-5. **Ver → Tema** (`Ctrl+Shift+T`) switches between the dark and light themes; the choice is
+6. **Ver → Tema** (`Ctrl+Shift+T`) switches between the dark and light themes; the choice is
    remembered in the saved preferences.
-6. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
+7. **Guardar** writes one `.sectionlab` JSON file. **Exportar CSV** writes every value at full
    precision (`repr`), independent of the visible decimals.
 
 ## Stack

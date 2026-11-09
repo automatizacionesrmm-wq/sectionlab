@@ -90,10 +90,13 @@ class MainWindow(QMainWindow):
         self._cursor_label = QLabel(self)
         self._snap_label = QLabel(self)
         self._unit_label = QLabel(self)
+        self._nav_label = QLabel(strings.label_for("hint_navigate"), self)
         self._message_label = QLabel(self)
         for label in (self._cursor_label, self._snap_label, self._unit_label, self._message_label):
             label.setObjectName("status")
             self.statusBar().addWidget(label)
+        self._nav_label.setObjectName("status")
+        self.statusBar().addPermanentWidget(self._nav_label)
         self.statusBar().addPermanentWidget(self._message_label)
 
         self._build_layout()
