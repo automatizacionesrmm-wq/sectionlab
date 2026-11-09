@@ -33,6 +33,7 @@ def runtime_dependencies() -> list[object]:
     imports are what the graph is built from; the application imports resolve
     from `app/` when the executable starts.
     """
+    # Third party: nothing from the application can pull these in any more.
     import numpy  # noqa: F401
     import PySide6.QtCore  # noqa: F401
     import PySide6.QtGui  # noqa: F401
@@ -40,6 +41,15 @@ def runtime_dependencies() -> list[object]:
     import sectionproperties.analysis  # noqa: F401
     import sectionproperties.pre.geometry  # noqa: F401
     import shapely.geometry  # noqa: F401
+
+    # Standard library the updater needs and the analyser cannot see either: the HTTPS stack
+    # (with its OpenSSL DLLs) and the archive handling that unpacks the code patch.
+    import hashlib  # noqa: F401
+    import ssl  # noqa: F401
+    import tempfile  # noqa: F401
+    import urllib.request  # noqa: F401
+    import zipfile  # noqa: F401
+    import zlib  # noqa: F401
 
     return []
 

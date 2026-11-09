@@ -112,6 +112,22 @@ def test_the_launcher_names_every_third_party_module_the_application_imports() -
     assert missing == []
 
 
+def test_the_launcher_names_the_standard_modules_the_frozen_app_cannot_analyse() -> None:
+    """The updater talks HTTPS and unpacks a ZIP; neither is visible to the analyser."""
+    launcher = (ROOT / "packaging" / "launcher.py").read_text(encoding="utf-8")
+    for module in ("ssl", "urllib.request", "hashlib", "zipfile", "zlib", "tempfile"):
+        assert f"import {module}" in launcher, module
+
+
+def test_the_updater_imports_what_the_launcher_promises() -> None:
+    """If the updater starts using something else from the network stack, this fails."""
+    update = (ROOT / "src" / "sectionlab" / "core" / "update.py").read_text(encoding="utf-8")
+    launcher = (ROOT / "packaging" / "launcher.py").read_text(encoding="utf-8")
+    for module in ("urllib.request", "hashlib", "zipfile", "tempfile"):
+        if f"import {module}" in update or f"from {module}" in update:
+            assert f"import {module}" in launcher, module
+
+
 def test_launcher_points_at_the_source_tree_when_not_frozen() -> None:
     from importlib import util
 

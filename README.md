@@ -133,13 +133,31 @@ The installer is only needed when the runtime changes (a new dependency, a new P
 [`tools/assemble_app.py`](tools/assemble_app.py) is what copies the package beside the frozen
 executable and writes that archive, locally and in CI.
 
+### Updates from inside the application
+
+From 0.2.0 onward SectionLab updates itself: it asks GitHub for the newest release once per
+launch (and whenever you pick **Ayuda → Buscar actualizaciones**), and when there is one, a
+banner above the drawing offers it. **Actualizar** downloads the code archive (about 50 kB),
+checks its SHA-256 when GitHub publishes one, and replaces `app\sectionlab`, keeping the
+previous folder as `sectionlab.bak`. Nothing restarts on its own: the window asks first.
+
+The running version is visible in the title bar, in **Configuración → Preferencias** and in
+**Ayuda → Acerca de SectionLab**.
+
+A release that changes the runtime rather than the code carries no code archive; the banner
+offers the full installer instead, and the window closes so it can run.
+
+**The updater cannot update a build that lacks it.** 0.2.0 has to be installed once with the
+setup from [Releases](https://github.com/automatizacionesrmm-wq/sectionlab/releases/latest);
+after that, every new release can be applied from inside the window.
+
 ### Install or update (no toolchain needed)
 
 The current build is published in
 [Releases](https://github.com/automatizacionesrmm-wq/sectionlab/releases/latest), where the
 files download directly:
 
-1. **`SectionLab-<version>-setup.exe`** — run it once. It installs under your user profile
+1. **`SectionLab-<version>-setup.exe`** — run it once (or let the application update itself). It installs under your user profile
    without administrator rights, adds a Start-menu entry and an uninstaller, and a newer setup
    upgrades the previous installation in place, keeping your preferences.
 2. **`SectionLab-<version>-code.zip`** — the update. Extract the `sectionlab` folder it holds
@@ -175,7 +193,7 @@ PyInstaller cannot cross-compile, so the Windows artifacts must be built on Wind
 spec builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
 
 ```bash
-dist/SectionLab/SectionLab --version     # SectionLab 0.1.2
+dist/SectionLab/SectionLab --version     # SectionLab 0.2.0
 dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, prints area and Ix
 ```
 
