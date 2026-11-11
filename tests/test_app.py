@@ -750,3 +750,15 @@ def test_an_invalid_parameter_explains_itself_without_a_dialog(qtbot, monkeypatc
     assert main.apply_template(TemplateKind.I_PROFILE.value, invalid) is False
     assert warnings == []
     assert main._message_label.text()
+
+
+def test_a_frozen_install_knows_its_own_app_folder(window: MainWindow, monkeypatch) -> None:
+    """Regression: the updater refused every real installation with `not_installed`."""
+    import sys as system
+    from pathlib import Path
+
+    import sectionlab
+
+    monkeypatch.setattr(system, "frozen", True, raising=False)
+    expected = Path(sectionlab.__file__).resolve().parent.parent
+    assert window._installation_app_dir() == expected

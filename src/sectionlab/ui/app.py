@@ -38,6 +38,7 @@ from sectionlab.core.document import (
     load,
     save,
 )
+import sectionlab
 from sectionlab import __version__
 from sectionlab.core.engine import InvalidSectionError, SectionProperties, calculate
 from sectionlab.core.model import Contour, Section
@@ -1004,7 +1005,10 @@ class MainWindow(QMainWindow):
         """The folder that holds ``sectionlab``; only a frozen install may be replaced."""
         if not getattr(sys, "frozen", False):
             return None
-        package = Path(__file__).resolve().parent
+        package_file = getattr(sectionlab, "__file__", None)
+        if not package_file:
+            return None
+        package = Path(package_file).resolve().parent
         if package.name != "sectionlab":
             return None
         return package.parent
