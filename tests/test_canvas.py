@@ -695,3 +695,79 @@ def test_escape_abandons_a_dimension_edit(canvas: CanvasView) -> None:
     canvas.close_dimension_editor()
     assert canvas.has_dimension_editor() is False
     assert canvas.section().outer.points[1] == Point(100, 0)
+
+
+# ------------------------------------------------- CAD input on a picked edge (spec S9)
+
+
+def rectangle_canvas(qtbot):
+    canvas = CanvasView()
+    qtbot.addWidget(canvas)
+    canvas.resize(600, 400)
+    canvas.set_section(
+        Section(outer=Contour(points=[Point(0, 0), Point(100, 0), Point(100, 60), Point(0, 60)], closed=True))
+    )
+    canvas.set_editable(True)
+    canvas.fit_to_content()
+    return canvas
+
+
+def click_edge(canvas, x: float, y: float) -> None:
+    scene_pos = QPointF(x, -y)
+    point = canvas.mapFromScene(scene_pos)
+    qtbot_press(canvas, point)
+
+
+def qtbot_press(canvas, point) -> None:
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(point),
+        canvas.viewport().mapToGlobal(QPointF(point)),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.mousePressEvent(event)
+
+
+def test_clicking_an_edge_selects_that_segment(qtbot) -> None:
+    canvas = rectangle_canvas(qtbot)
+    click_edge(canvas, 50.0, 0.0)
+    assert canvas.selected_segment() == ("outer", 0)
+
+
+def test_typing_a_number_on_a_selected_edge_changes_its_length(qtbot) -> None:
+    canvas = rectangle_canvas(qtbot)
+    click_edge(canvas, 50.0, 0.0)
+    qtbot.keyClick(canvas, Qt.Key.Key_1)
+    assert canvas.has_dimension_editor()
+    for key in (Qt.Key.Key_5, Qt.Key.Key_0):
+        qtbot.keyClick(canvas._dimension_editor, key)
+    qtbot.keyClick(canvas._dimension_editor, Qt.Key.Key_Return)
+    points = canvas.section().outer.points
+    assert points[1].x == pytest.approx(150.0)
+    assert canvas.undo_stack().undoText() == strings.label_for("undo_dimension")
+
+
+def test_typing_a_number_on_a_slanted_edge_is_refused(qtbot) -> None:
+    canvas = CanvasView()
+    qtbot.addWidget(canvas)
+    canvas.resize(600, 400)
+    canvas.set_section(
+        Section(outer=Contour(points=[Point(0, 0), Point(100, 0), Point(100, 60), Point(0, 120)], closed=True))
+    )
+    canvas.set_editable(True)
+    canvas.fit_to_content()
+    refused: list[str] = []
+    canvas.editRejected.connect(refused.append)
+    canvas.select_segment("outer", 2)  # the slanted one
+    qtbot.keyClick(canvas, Qt.Key.Key_9)
+    assert canvas.has_dimension_editor() is False
+    assert refused == ["segment_not_editable"]
+
+
+def test_selecting_a_vertex_drops_the_picked_edge(qtbot) -> None:
+    canvas = rectangle_canvas(qtbot)
+    click_edge(canvas, 50.0, 0.0)
+    canvas.select_vertex("outer", 2)
+    assert canvas.selected_segment() is None

@@ -202,6 +202,7 @@ class MainWindow(QMainWindow):
         self.canvas.cursorMoved.connect(self._on_cursor_moved)
         self.canvas.snapChanged.connect(self._on_snap_changed)
         self.canvas.vertexSelected.connect(self._on_vertex_selected)
+        self.canvas.segmentSelected.connect(self._on_segment_selected)
         self.canvas.drawingChanged.connect(self._on_drawing_changed)
         self.canvas.editRejected.connect(self._on_dimension_rejected)
         self.template_panel.applied.connect(self.apply_template)
@@ -878,6 +879,11 @@ class MainWindow(QMainWindow):
         if kind:
             label = strings.label_for(f"snap_{kind.lower()}")
         self._snap_label.setText(label)
+
+    def _on_segment_selected(self, contour: str, index: int) -> None:
+        """A picked edge takes typed input, so the status bar says so."""
+        if contour:
+            self._set_message(strings.label_for("segment_selected_hint"))
 
     def _on_vertex_selected(self, contour: str, index: int) -> None:
         if contour:

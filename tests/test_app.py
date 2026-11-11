@@ -762,3 +762,9 @@ def test_a_frozen_install_knows_its_own_app_folder(window: MainWindow, monkeypat
     monkeypatch.setattr(system, "frozen", True, raising=False)
     expected = Path(sectionlab.__file__).resolve().parent.parent
     assert window._installation_app_dir() == expected
+
+
+def test_picking_a_segment_explains_that_it_takes_typed_input(window: MainWindow) -> None:
+    open_section(window)
+    window.canvas.select_segment("outer", 0)
+    assert window._message_label.text() == strings.label_for("segment_selected_hint")

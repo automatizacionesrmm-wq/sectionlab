@@ -125,6 +125,7 @@ UI: dict[str, str] = {
     "dimensions_tip": "Muestra la medida de cada segmento sobre el dibujo",
     "undo_dimension": "cota",
     "dimensions_hint": "Doble clic sobre una cota para cambiarla",
+    "segment_selected_hint": "Línea seleccionada: escribe el largo que quieres y pulsa Enter",
     "convert_free": "Convertir a geometría libre",
     "convert_free_tip": "Mantiene el contorno y entrega los vértices para editarlos uno a uno",
     "converted_free": "Geometría libre: edita los vértices o sus cotas",
@@ -251,6 +252,7 @@ DIMENSION_MESSAGES: dict[str, str] = {
     "too_few_vertices": "Hacen falta al menos tres vértices para acotar",
     "not_a_number": "Escribe un número, por ejemplo 120.5",
     "read_only": "Esta sección viene de una plantilla: cámbiala en sus parámetros",
+    "segment_not_editable": "Solo una línea recta horizontal o vertical acepta una longitud escrita",
 }
 
 

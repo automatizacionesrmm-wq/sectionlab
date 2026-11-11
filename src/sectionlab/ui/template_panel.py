@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from sectionlab.core.templates import TemplateKind, default_params, parameters
 from sectionlab.core.units import Unit, from_mm, to_mm
 from sectionlab.ui import strings
+from sectionlab.ui.settings import unit_label
 
 _PARAMETER_DECIMALS = 3
 _REBUILD_DELAY_MS = 120
@@ -107,6 +108,7 @@ class TemplatePanel(QWidget):
         self._loading = True
         try:
             for key, spin in self._spins.items():
+                spin.setSuffix(f" {unit_label(unit)}")
                 value = round(from_mm(self._mm[key], unit), _PARAMETER_DECIMALS)
                 spin.setValue(value)
                 self._rendered[key] = value
@@ -153,6 +155,7 @@ class TemplatePanel(QWidget):
             spin.setDecimals(_PARAMETER_DECIMALS)
             spin.setRange(param.minimum if param.minimum > 0 else -1e6, 1e6)
             spin.setSingleStep(1.0)
+            spin.setSuffix(f" {unit_label(self._unit)}")
             value = round(from_mm(defaults[param.key], self._unit), _PARAMETER_DECIMALS)
             spin.setValue(value)
             self._spins[param.key] = spin

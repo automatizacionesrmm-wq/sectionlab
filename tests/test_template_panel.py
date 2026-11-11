@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sectionlab.core.templates import TemplateKind
+from sectionlab.core.units import Unit
 from sectionlab.ui.template_panel import TemplatePanel
 
 
@@ -45,3 +46,18 @@ def test_programmatic_changes_do_not_rebuild_the_section(qtbot, panel: TemplateP
     panel.set_params({"h": 220.0})
     qtbot.wait(200)
     assert received == []
+
+
+def test_every_field_shows_the_active_unit(panel: TemplatePanel) -> None:
+    assert panel._spins["b"].suffix().strip() == "mm"
+    panel.set_unit(Unit.CM)
+    assert panel._spins["b"].suffix().strip() == "cm"
+    assert panel._spins["h"].suffix().strip() == "cm"
+
+
+def test_the_shown_value_and_the_unit_agree_after_a_change(panel: TemplatePanel) -> None:
+    from sectionlab.core.units import from_mm
+
+    panel.set_unit(Unit.IN)
+    assert panel._spins["b"].value() == pytest.approx(round(from_mm(100.0, Unit.IN), 3))
+    assert panel.params()["b"] == pytest.approx(100.0)

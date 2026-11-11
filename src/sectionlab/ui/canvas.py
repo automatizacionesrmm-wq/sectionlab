@@ -54,6 +54,8 @@ SELECTED_RING_PX = 6.5
 DIM_OFFSET_PX = 26.0
 DIM_GAP_PX = 4.0
 DIM_HIT_PX = 13.0
+# Clicking this close to an edge selects that segment, as picking a line does in CAD.
+SEGMENT_HIT_PX = 7.0
 SNAP_GLYPH_PX = 5.5
 # Clicking this close to the first vertex closes the polyline, like an object snap target.
 CLOSE_HIT_PX = 14.0
@@ -65,6 +67,17 @@ MAX_SCALE = 1000.0
 WORLD_HALF_MM = 500_000.0
 GRID_STEPS = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0)
 MIN_GRID_PX = 7.0
+
+
+def _edge_distance(point: QPoint, start: QPointF, end: QPointF) -> float:
+    """Pixel distance from ``point`` to the segment ``start``-``end``."""
+    ax, ay = start.x(), start.y()
+    dx, dy = end.x() - ax, end.y() - ay
+    span = dx * dx + dy * dy
+    if span == 0:
+        return hypot(point.x() - ax, point.y() - ay)
+    t = max(0.0, min(1.0, ((point.x() - ax) * dx + (point.y() - ay) * dy) / span))
+    return hypot(point.x() - (ax + t * dx), point.y() - (ay + t * dy))
 
 _PALETTE: dict[str, str] = dict(ui_theme.DARK)
 
@@ -162,6 +175,8 @@ class CanvasView(QGraphicsView):
     cursorMoved = Signal(float, float)
     snapChanged = Signal(str)
     vertexSelected = Signal(str, int)
+    # A segment picked with the left button, as (contour, index of its first vertex).
+    segmentSelected = Signal(str, int)
     drawingChanged = Signal(bool)
     # A refused dimension edit, carrying the English code the status bar translates (D6).
     editRejected = Signal(str)
@@ -169,6 +184,8 @@ class CanvasView(QGraphicsView):
 
     def __init__(self, parent: QGraphicsView | None = None) -> None:
         super().__init__(parent)
+        # Typing must reach the drawing, not only the toolbars: CAD input starts on the canvas.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -198,6 +215,7 @@ class CanvasView(QGraphicsView):
         self._drag: tuple[str, int, _NodeItem, Point] | None = None
         self._drawing = False
         self._selected: tuple[str, int] | None = None
+        self._segment: tuple[str, int] | None = None
         self._undo = QUndoStack(self)
         self._snap = None
         self._cursor_scene: QPointF | None = None
@@ -378,15 +396,56 @@ class CanvasView(QGraphicsView):
         if self._selected == (contour, index):
             return
         self._selected = (contour, index)
+        self._segment = None
         self._paint_selection()
         self.vertexSelected.emit(contour, index)
 
     def clear_selection(self) -> None:
-        if self._selected is None:
-            return
+        had_vertex = self._selected is not None
         self._selected = None
+        self._segment = None
+        if had_vertex:
+            self._paint_selection()
+            self.vertexSelected.emit("", -1)
+        self.viewport().update()
+
+    def selected_segment(self) -> tuple[str, int] | None:
+        """The edge picked with the left button, if any."""
+        return self._segment
+
+    def select_segment(self, contour: str, index: int) -> None:
+        """Highlight one edge and tell the window, so the status bar can explain the typing."""
+        if self._segment == (contour, index):
+            return
+        had_vertex = self._selected is not None
+        self._selected = None
+        self._segment = (contour, index)
         self._paint_selection()
-        self.vertexSelected.emit("", -1)
+        if had_vertex:
+            self.vertexSelected.emit("", -1)
+        self.viewport().update()
+        self.segmentSelected.emit(contour, index)
+
+    def segment_at(self, point: QPointF) -> tuple[str, int] | None:
+        """Contour and index of the edge under a scene point, within ``SEGMENT_HIT_PX``."""
+        cursor = self.mapFromScene(point)
+        best: tuple[str, int] | None = None
+        best_distance = SEGMENT_HIT_PX
+        for name, contour in ((OUTER, self._section.outer), (INNER, self._section.inner)):
+            if contour is None or len(contour.points) < 2:
+                continue
+            count = len(contour.points)
+            for index in range(count):
+                start = contour.points[index]
+                end = contour.points[(index + 1) % count]
+                distance = _edge_distance(
+                    cursor,
+                    self.mapFromScene(QPointF(start.x, -start.y)),
+                    self.mapFromScene(QPointF(end.x, -end.y)),
+                )
+                if distance <= best_distance:
+                    best, best_distance = (name, index), distance
+        return best
 
     def pixels_per_mm(self) -> float:
         """Current zoom, used to translate the pixel snap tolerance into millimetres."""
@@ -835,6 +894,25 @@ class CanvasView(QGraphicsView):
         assert self._selected is not None
         painter.drawText(QPointF(point.x() + SELECTED_RING_PX + 3, point.y() - SELECTED_RING_PX), f"v{self._selected[1]}")
 
+    def _draw_selected_segment(self, painter: QPainter) -> None:
+        """Draw the picked edge on top, so it reads as selected at any zoom."""
+        segment = self._segment
+        if segment is None:
+            return
+        contour = self._contour(segment[0])
+        if contour is None or not contour.points:
+            return
+        count = len(contour.points)
+        if not 0 <= segment[1] < count:
+            return
+        start = contour.points[segment[1]]
+        end = contour.points[(segment[1] + 1) % count]
+        first = self.mapFromScene(QPointF(start.x, -start.y))
+        second = self.mapFromScene(QPointF(end.x, -end.y))
+        painter.setPen(QPen(QColor(_PALETTE["handle_selected"]), 2.4))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(QPoint(int(first.x()), int(first.y())), QPoint(int(second.x()), int(second.y())))
+
     # ------------------------------------------------------------------ foreground
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
@@ -882,6 +960,7 @@ class CanvasView(QGraphicsView):
             painter.drawLine(QPoint(0, cursor.y()), QPoint(width, cursor.y()))
             painter.setPen(QPen(QColor(_PALETTE["text_faint"])))
             painter.drawText(QPoint(cursor.x() + 8, cursor.y() - 6), f"{self._cursor_scene.x():.1f}, {-self._cursor_scene.y():.1f}")
+        self._draw_selected_segment(painter)
         self._draw_snap(painter)
         self._draw_selected_vertex(painter)
         painter.restore()
@@ -904,6 +983,7 @@ class CanvasView(QGraphicsView):
             return
 
         if event.button() == Qt.MouseButton.LeftButton and self._editable:
+            self.setFocus()
             scene_pos = self.mapToScene(event.position().toPoint())
             if self.closes_here(scene_pos):
                 self.close_contour()
@@ -931,6 +1011,11 @@ class CanvasView(QGraphicsView):
                 return
 
             if not self.is_drawing():
+                segment = self.segment_at(scene_pos)
+                if segment is not None:
+                    self.select_segment(*segment)
+                    event.accept()
+                    return
                 self.clear_selection()
                 self.begin_drawing()
             point, _ = self.snapped_point(scene_pos)
@@ -1020,7 +1105,35 @@ class CanvasView(QGraphicsView):
             self.clear_selection()
             event.accept()
             return
+        if self._begin_segment_typing(event.text()):
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    def _begin_segment_typing(self, text: str) -> bool:
+        """A digit on the picked edge opens its dimension editor, the way CAD takes input."""
+        if not self._editable or self._segment is None or self.is_drawing():
+            return False
+        if len(text) != 1 or text not in "0123456789,.-":
+            return False
+        contour, index = self._segment
+        if contour != OUTER:
+            self.editRejected.emit("segment_not_editable")
+            return True
+        dimension = next((item for item in self.dimensions() if item.index == index), None)
+        if dimension is None:
+            return False
+        if not dimension.editable:
+            # Slanted and closing segments cannot take a length without dragging the rest.
+            self.editRejected.emit("segment_not_editable")
+            return True
+        if not self.begin_dimension_edit(dimension):
+            return True
+        editor = self._dimension_editor
+        if editor is not None:
+            editor.setText(text)
+            editor.setCursorPosition(len(text))
+        return True
 
     def zoom_in(self) -> None:
         """Zoom in about the middle of the viewport, as the toolbar does."""
