@@ -662,26 +662,21 @@ class MainWindow(QMainWindow):
             section = build_section(TemplateKind(kind), dict(params or {}))
         except (TemplateParameterError, ValueError) as error:
             code = getattr(error, "code", "")
-            self._report_error(strings.error_message(code) if code else str(error))
+            self._report_error(
+                strings.error_message(code) if code else str(error), quiet=True
+            )
             return False
+        # Refit only when the template itself changes: while a parameter is edited the view
+        # must stay where the user put it.
         refit = self._template_kind != kind
-        self.canvas.set_section(section)
+        self.canvas.set_section(section, fit=refit)
         self.canvas.set_editable(False)
-        if refit:
-            self.canvas.fit_to_content()
         self._template_kind = kind
         self._template_mode = True
-        self._fetch = fetch_latest
-        self._download = download
-        self._opener = None
-        self._checker: UpdateChecker | None = None
-        self._downloader: UpdateDownloader | None = None
-        self._updates_dir: Path | None = None
-        self._relaunch = _relaunch_application
-        self._open_installer = _open_installer
-        self._automatic_check = False
-        self._release: Release | None = None
-        self.template_panel.set_kind(kind)
+        # Only rebuild the form when the template actually changed: rebuilding it here would
+        # overwrite the value the user just typed with the template default.
+        if self.template_panel.kind() != kind:
+            self.template_panel.set_kind(kind)
         self._path = None
         self._set_message(f"{strings.label_for("applied")}: {strings.label_for(kind)}")
         self._last_error = None
@@ -1111,10 +1106,11 @@ class MainWindow(QMainWindow):
                     self.canvas.select_vertex(name, index)
                     return
 
-    def _report_error(self, message: str) -> None:
+    def _report_error(self, message: str, *, quiet: bool = False) -> None:
+        """Explain a refusal in the status bar; only an explicit action may interrupt."""
         self._last_error = message
         self._set_message(message)
-        if self._interactive:
+        if self._interactive and not quiet:
             QMessageBox.warning(self, strings.label_for("window_title"), message)
 
     def _set_message(self, text: str) -> None:

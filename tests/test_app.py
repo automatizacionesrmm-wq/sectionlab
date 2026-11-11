@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QDockWidget
+from PySide6.QtWidgets import QDockWidget, QMessageBox
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_full
@@ -718,3 +718,35 @@ def test_a_release_without_a_code_archive_offers_the_installer(window: MainWindo
     downloaded = tmp_path / "updates" / "SectionLab-9.9.9-setup.exe"
     assert downloaded.read_bytes() == installer_bytes
     assert strings.label_for("installer_ready") in window._message_label.text()
+
+
+# ------------------------------------------------- editing a template (spec S9)
+
+
+def test_a_typed_parameter_survives_being_applied(window: MainWindow, qtbot) -> None:
+    """The panel is the source of truth while a template is edited: it must keep 200."""
+    combo = window.template_panel._kind
+    combo.setCurrentIndex(combo.findData(TemplateKind.I_PROFILE.value))
+    qtbot.wait(250)
+    window.template_panel._spins["b"].setValue(200.0)
+    qtbot.wait(300)
+    assert window.template_panel._spins["b"].value() == 200.0
+    assert window.section().template.params["b"] == pytest.approx(200.0)
+
+
+def test_applying_a_template_keeps_the_offered_update(window: MainWindow) -> None:
+    window._release = rectangle_release("9.9.9")
+    assert window.apply_template(TemplateKind.I_PROFILE.value) is True
+    assert window.offered_release() is not None
+
+
+def test_an_invalid_parameter_explains_itself_without_a_dialog(qtbot, monkeypatch) -> None:
+    """Typing an intermediate invalid value must not steal the keyboard with a dialog."""
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a[2])))
+    main = MainWindow(AppSettings(), interactive=True)
+    qtbot.addWidget(main)
+    invalid = {"h": 200.0, "b": 4.0, "tw": 6.0, "tf": 10.0}
+    assert main.apply_template(TemplateKind.I_PROFILE.value, invalid) is False
+    assert warnings == []
+    assert main._message_label.text()
