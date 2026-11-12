@@ -96,3 +96,15 @@ tool the user wields, like in a CAD program.
   (`vertex i` or `edge i at t`), the value is measured and never persisted, and one move rule —
   translate every vertex on the far side of a reference plane along a direction — serves the
   three kinds, which keeps the solver deterministic and testable without Qt.
+
+## Slices
+
+Review boundaries, in commit order. Slice 1 already landed; it is kept apart because the
+alignment guides touch neither the dimension model nor the canvas.
+
+| Slice | Commits | Contents |
+| --- | --- | --- |
+| 1 | `34c3267`, `91a1849`, `fa48fb5`, `4f84e60` | specs; alignment guides (T8); dimension model and solver (T1, T2); lock sync |
+| 2 | — | template parameter mapping and persistence (T3, T4) |
+| 3 | — | canvas: drawn dimensions, selection, drag, tool mode, guides (T5, T6, T9) |
+| 4 | — | app wiring: commands, strings, automatic dimensions removed, docs (T7) |
