@@ -101,11 +101,26 @@ def test_ortho_is_ignored_without_an_open_polyline(canvas: CanvasView) -> None:
     assert (point.x, point.y) == pytest.approx((50.0, 5.0))
 
 
-def test_begin_drawing_starts_an_open_contour(canvas: CanvasView) -> None:
+def test_arming_the_draw_command_starts_a_fresh_trace_on_a_closed_section(
+    canvas: CanvasView,
+) -> None:
+    """A closed section is not extended by clicking: the command starts a new trace (S1)."""
     canvas.set_section(free_section(), fit=False)
     canvas.begin_drawing()
     assert canvas.is_drawing() is True
     assert canvas.section().outer.points == []
+    assert canvas.section().outer.closed is False
+
+
+def test_arming_the_draw_command_continues_an_open_trace(canvas: CanvasView) -> None:
+    """What `Esc` left open is continued, not thrown away (S2)."""
+    canvas.begin_drawing()
+    canvas.add_vertex(0.0, 0.0)
+    canvas.add_vertex(10.0, 0.0)
+    canvas.end_drawing()
+    canvas.begin_drawing()
+    assert canvas.is_drawing() is True
+    assert [point.x for point in canvas.section().outer.points] == [0.0, 10.0]
 
 
 def test_adding_vertices_keeps_the_contour_open(canvas: CanvasView) -> None:
@@ -126,13 +141,15 @@ def test_closing_the_contour_finishes_the_polyline(canvas: CanvasView) -> None:
     assert canvas.is_drawing() is False
 
 
-def test_cancelling_the_drawing_discards_it(canvas: CanvasView) -> None:
+def test_leaving_the_drawing_keeps_what_was_traced(canvas: CanvasView) -> None:
+    """`Esc` ends the command and the vertices stay, open and selectable (S2)."""
     canvas.begin_drawing()
     canvas.add_vertex(0, 0)
     canvas.add_vertex(10, 0)
-    canvas.cancel_drawing()
-    assert canvas.section().outer.points == []
-    assert canvas.undo_stack().count() == 0
+    canvas.end_drawing()
+    assert canvas.is_drawing() is False
+    assert [point.x for point in canvas.section().outer.points] == [0.0, 10.0]
+    assert canvas.section().outer.closed is False
 
 
 def test_inserting_a_vertex_in_the_middle(canvas: CanvasView) -> None:
@@ -200,11 +217,23 @@ def test_vertex_selection_is_announced(canvas: CanvasView, qtbot) -> None:
     assert canvas.selected_vertex() == (OUTER, 2)
 
 
-def test_clicking_empty_space_starts_a_polyline(canvas: CanvasView, qtbot) -> None:
+def test_clicking_empty_space_does_not_draw(canvas: CanvasView, qtbot) -> None:
+    """A stray click used to empty the section; it now only deselects (S1)."""
+    canvas.set_section(free_section(), fit=False)
+    canvas.select_vertex(OUTER, 0)
+    canvas.resetTransform()
+    qtbot.mousePress(canvas.viewport(), Qt.MouseButton.LeftButton, pos=canvas.mapFromScene(QPointF(400, -400)))
+    qtbot.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=canvas.mapFromScene(QPointF(400, -400)))
+    assert canvas.is_drawing() is False
+    assert len(canvas.section().outer.points) == 4
+    assert canvas.selected_vertex() is None
+
+
+def test_with_the_command_armed_a_click_adds_a_vertex(canvas: CanvasView, qtbot) -> None:
     canvas.set_section(Section(outer=Contour(points=[])), fit=False)
+    canvas.begin_drawing()
     canvas.resetTransform()
     qtbot.mousePress(canvas.viewport(), Qt.MouseButton.LeftButton, pos=canvas.mapFromScene(QPointF(10, -10)))
-    assert canvas.is_drawing() is True
     assert len(canvas.section().outer.points) == 1
 
 
@@ -482,12 +511,13 @@ def test_the_context_button_closes_the_contour(canvas: CanvasView) -> None:
     assert not canvas.is_drawing()
 
 
-def test_the_context_button_cancels_a_short_polyline(canvas: CanvasView) -> None:
+def test_the_context_button_leaves_a_short_polyline_in_place(canvas: CanvasView) -> None:
+    """Two points cannot close, so the command ends and the points stay (S2)."""
     canvas.begin_drawing()
     canvas.add_vertex(0.0, 0.0)
     right_press(canvas)
     assert not canvas.is_drawing()
-    assert canvas.section().outer.points == []
+    assert [point.x for point in canvas.section().outer.points] == [0.0]
 
 
 def test_appending_the_first_point_closes_the_polyline(canvas: CanvasView) -> None:

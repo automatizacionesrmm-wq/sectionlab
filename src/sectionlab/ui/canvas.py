@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from math import cos, hypot, radians, sin
 from typing import Mapping
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QLineF, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -49,6 +49,7 @@ from sectionlab.core.dimensions import (
 )
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_value
+from sectionlab.core.edit import rectangle as rectangle_ring
 from sectionlab.core.sketch import SketchError, set_measure
 from sectionlab.core.snap import (
     GUIDE_X,
@@ -119,6 +120,23 @@ _INNER_PEN = QPen(QColor(_PALETTE["inner"]), 1.6, Qt.PenStyle.DashLine)
 _INNER_PEN.setCosmetic(True)
 _DRAFT_PEN = QPen(QColor(_PALETTE["draft"]), 1.2, Qt.PenStyle.DashLine)
 _DRAFT_PEN.setCosmetic(True)
+_BAND_PEN = QPen(QColor(_PALETTE["handle_selected"]), 1.2, Qt.PenStyle.DashLine)
+_BAND_PEN.setCosmetic(True)
+BAND_CLICK_PX = 4
+
+
+def _line_hits_rect(line: QLineF, rect: QRectF) -> bool:
+    """True when a segment touches the rectangle anywhere."""
+    for start, end in (
+        (rect.topLeft(), rect.topRight()),
+        (rect.topRight(), rect.bottomRight()),
+        (rect.bottomRight(), rect.bottomLeft()),
+        (rect.bottomLeft(), rect.topLeft()),
+    ):
+        kind, _ = line.intersect(QLineF(start, end))
+        if kind == QLineF.IntersectionType.BoundedIntersection:
+            return True
+    return rect.contains(line.p1()) or rect.contains(line.p2())
 
 
 def set_palette(palette: Mapping[str, str]) -> None:
@@ -261,7 +279,6 @@ class CanvasView(QGraphicsView):
         self._rubber: QGraphicsLineItem | None = None
         self._drag: tuple[str, int, _NodeItem, Point] | None = None
         self._drawing = False
-        self._selected: tuple[str, int] | None = None
         self._segment: tuple[str, int] | None = None
         self._undo = QUndoStack(self)
         self._snap = None
@@ -276,6 +293,12 @@ class CanvasView(QGraphicsView):
         self._dimensions: list[Dimension] = []
         self._next_dimension_id = 1
         self._selected_dimension: int | None = None
+        self._selection: set[tuple[str, int]] = set()
+        self._band_origin: QPointF | None = None
+        self._band_item: QGraphicsRectItem | None = None
+        self._rectangle_armed = False
+        self._rectangle_start: Point | None = None
+        self._rectangle_preview: QGraphicsRectItem | None = None
         self._dimension_drag: tuple[Dimension, _Snapshot] | None = None
         self._tool_active = False
         self._tool_anchors: list[Anchor] = []
@@ -401,7 +424,7 @@ class CanvasView(QGraphicsView):
 
     def select_dimension(self, identifier: int) -> None:
         """Highlight one dimension, and tell the window so it can offer its actions."""
-        self._selected = None
+        self._selection = set()
         self._segment = None
         self._selected_dimension = identifier
         self.viewport().update()
@@ -409,18 +432,6 @@ class CanvasView(QGraphicsView):
 
     def selected_dimension(self) -> int | None:
         return self._selected_dimension
-
-    def clear_selection(self) -> None:
-        had_vertex = self._selected is not None
-        had_dimension = self._selected_dimension is not None
-        self._selected = None
-        self._segment = None
-        self._selected_dimension = None
-        if had_vertex or had_dimension:
-            self._paint_selection()
-            self.viewport().update()
-        if had_vertex:
-            self.vertexSelected.emit("", -1)
 
     def can_drive(self, dimension: Dimension) -> bool:
         """Whether typing a value for this dimension can move anything (specs S5-S7)."""
@@ -516,13 +527,21 @@ class CanvasView(QGraphicsView):
         return self._drawing
 
     def begin_drawing(self) -> None:
-        """Start an open polyline to be closed with `close_contour`."""
+        """Arm the draw command: clicks append vertices until it is closed or left (S1, S2).
+
+        Arming a command no longer empties the section: the window's "new free geometry"
+        button does the emptying when that is what was asked.
+        """
         if not self._editable:
             return
         if self._drawing:
             return
-        self.set_section(Section(outer=Contour(points=[], closed=False)), fit=False)
+        outer = self._section.outer
+        if outer.closed or not outer.points:
+            # A closed section is not extended by clicking: the command starts a fresh trace.
+            self.set_section(Section(outer=Contour(points=[], closed=False)), fit=False)
         self._drawing = True
+        self._rebuild()
         self.drawingChanged.emit(True)
 
     def add_vertex(self, x: float, y: float, contour: str = OUTER, index: int | None = None) -> None:
@@ -575,12 +594,13 @@ class CanvasView(QGraphicsView):
         self._replace_contour(OUTER, contour, "close contour")
         self.drawingChanged.emit(False)
 
-    def cancel_drawing(self) -> None:
-        """Discard the polyline being drawn."""
+    def end_drawing(self) -> None:
+        """Leave the draw command and keep what is already traced, as an open contour (S2)."""
         if not self._drawing:
             return
         self._drawing = False
-        self.set_section(Section(outer=Contour(points=[])), fit=False)
+        contour = replace(self._section.outer, closed=False)
+        self._replace_contour(OUTER, contour, "end drawing")
         self.drawingChanged.emit(False)
 
     def draft_line(self) -> QGraphicsLineItem | None:
@@ -588,29 +608,126 @@ class CanvasView(QGraphicsView):
         return self._rubber
 
     def selected_vertex(self) -> tuple[str, int] | None:
-        return self._selected
+        """The selected vertex when exactly one is; `None` when none or several are."""
+        if len(self._selection) != 1:
+            return None
+        return next(iter(self._selection))
+
+    def has_selection(self) -> bool:
+        """True when a vertex, an edge or a dimension is selected (S3)."""
+        return bool(self._selection) or self._segment is not None or self._selected_dimension is not None
+
+    def can_delete_selection(self) -> bool:
+        """Vertices and dimensions can be deleted; an edge alone cannot (S3)."""
+        return bool(self._selection) or self._selected_dimension is not None
+
+    def selected_vertices(self) -> tuple[tuple[str, int], ...]:
+        """Every selected vertex, in a stable order (contour name, then index)."""
+        return tuple(sorted(self._selection))
 
     def select_vertex(self, contour: str, index: int) -> None:
-        """Highlight one vertex; `vertexSelected` is emitted for the window's vertex table.
+        """Highlight one vertex, replacing any other selection.
 
         Selecting what is already selected stays silent, so the table and the drawing can
         mirror each other without echoing the same click back and forth.
         """
-        if self._selected == (contour, index):
+        self.select_vertices([(contour, index)])
+
+    def select_vertices(self, items) -> None:
+        """Highlight several vertices at once: `Ctrl+A`, a selection window, or one click."""
+        chosen = {(name, int(index)) for name, index in items}
+        if chosen == self._selection:
             return
-        self._selected = (contour, index)
+        had_vertex = bool(self._selection)
+        self._selection = chosen
         self._segment = None
         self._paint_selection()
-        self.vertexSelected.emit(contour, index)
+        self.viewport().update()
+        single = self.selected_vertex()
+        if single is None:
+            # A multiple selection has no single vertex to show, but the window still needs
+            # to know that something is selected (spec S3).
+            self.vertexSelected.emit("", -1)
+            return
+        self.vertexSelected.emit(*single)
+
+    def begin_rectangle_tool(self) -> None:
+        """Arm the rectangle: the next two clicks are opposite corners (S4)."""
+        if not self._editable:
+            return
+        self.cancel_rectangle_tool()
+        self._rectangle_armed = True
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+
+    def cancel_rectangle_tool(self) -> None:
+        self._rectangle_armed = False
+        self._rectangle_start = None
+        if self._rectangle_preview is not None:
+            self._scene.removeItem(self._rectangle_preview)
+            self._rectangle_preview = None
+        self.viewport().unsetCursor()
+
+    def is_placing_rectangle(self) -> bool:
+        return self._rectangle_armed
+
+    def replace_outer(self, points, text: str) -> None:
+        """Replace the outer ring with the result of an edit tool (S4).
+
+        These operations move or insert vertices, so a dimension anchored by index no longer
+        describes the drawing; the dimensions are dropped and the loss is reported.
+        """
+        lost = len(self._dimensions)
+        contour = replace(
+            self._section.outer,
+            points=[Point(float(point.x), float(point.y)) for point in points],
+        )
+        self._replace_contour(OUTER, contour, text, dimensions=())
+        if lost:
+            self.dimensionsDropped.emit(lost)
+
+    def select_all(self) -> int:
+        """Select every vertex of the section; returns how many (S3)."""
+        items: list[tuple[str, int]] = []
+        for name, contour in ((OUTER, self._section.outer), (INNER, self._section.inner)):
+            if contour is None:
+                continue
+            items.extend((name, index) for index in range(len(contour.points)))
+        self.select_vertices(items)
+        return len(items)
+
+    def delete_selection(self) -> int:
+        """Delete the selected dimension, or every selected vertex, as one undo step (S3)."""
+        if self._selected_dimension is not None:
+            identifier = self._selected_dimension
+            self.delete_dimension(identifier)
+            return 1
+        items = sorted(self._selection, key=lambda item: (item[0], -item[1]))
+        if not items:
+            return 0
+        self._undo.beginMacro(strings.label_for("undo_delete_selection"))
+        try:
+            for name, index in items:
+                contour = self._contour(name)
+                if contour is None or not 0 <= index < len(contour.points):
+                    continue
+                self.delete_vertex(name, index)
+        finally:
+            self._undo.endMacro()
+        self.clear_selection()
+        return len(items)
 
     def clear_selection(self) -> None:
-        had_vertex = self._selected is not None
-        self._selected = None
+        """Drop every selection: vertices, the picked edge and the picked dimension."""
+        had_vertex = bool(self._selection)
+        had_dimension = self._selected_dimension is not None
+        self._selection = set()
         self._segment = None
-        if had_vertex:
+        self._selected_dimension = None
+        if had_vertex or had_dimension:
             self._paint_selection()
+            self.viewport().update()
+        if had_vertex:
             self.vertexSelected.emit("", -1)
-        self.viewport().update()
 
     def selected_segment(self) -> tuple[str, int] | None:
         """The edge picked with the left button, if any."""
@@ -620,8 +737,8 @@ class CanvasView(QGraphicsView):
         """Highlight one edge and tell the window, so the status bar can explain the typing."""
         if self._segment == (contour, index):
             return
-        had_vertex = self._selected is not None
-        self._selected = None
+        had_vertex = bool(self._selection)
+        self._selection = set()
         self._segment = (contour, index)
         self._paint_selection()
         if had_vertex:
@@ -851,7 +968,7 @@ class CanvasView(QGraphicsView):
             and self._editable
         )
         for node in self._nodes:
-            selected = self._selected == (node.contour, node.index)
+            selected = (node.contour, node.index) in self._selection
             if selected:
                 colour = _PALETTE["handle_selected"]
             elif closing and node.contour == OUTER and node.index == 0:
@@ -1443,9 +1560,10 @@ class CanvasView(QGraphicsView):
         painter.drawText(QPointF(point.x() + size + 6, point.y() - size - 2), name)
 
     def _selected_point(self) -> QPointF | None:
-        if self._selected is None:
+        chosen = self.selected_vertex()
+        if chosen is None:
             return None
-        name, index = self._selected
+        name, index = chosen
         contour = self._section.outer if name == OUTER else self._section.inner
         if contour is None or not 0 <= index < len(contour.points):
             return None
@@ -1454,15 +1572,20 @@ class CanvasView(QGraphicsView):
 
     def _draw_selected_vertex(self, painter: QPainter) -> None:
         """A ring and the vertex index, because the handle alone is too small to read."""
-        point = self._selected_point()
-        if point is None:
-            return
         colour = QColor(_PALETTE["handle_selected"])
         painter.setPen(QPen(colour, 1.6))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(point, SELECTED_RING_PX, SELECTED_RING_PX)
-        assert self._selected is not None
-        painter.drawText(QPointF(point.x() + SELECTED_RING_PX + 3, point.y() - SELECTED_RING_PX), f"v{self._selected[1]}")
+        for name, index in sorted(self._selection):
+            contour = self._contour(name)
+            if contour is None or not 0 <= index < len(contour.points):
+                continue
+            spot = contour.points[index]
+            point = self.mapFromScene(QPointF(spot.x, -spot.y))
+            painter.drawEllipse(point, SELECTED_RING_PX, SELECTED_RING_PX)
+            painter.drawText(
+                QPointF(point.x() + SELECTED_RING_PX + 3, point.y() - SELECTED_RING_PX),
+                f"v{index}",
+            )
 
     def _draw_selected_segment(self, painter: QPainter) -> None:
         """Draw the picked edge on top, so it reads as selected at any zoom."""
@@ -1539,10 +1662,88 @@ class CanvasView(QGraphicsView):
 
     # ------------------------------------------------------------- mouse and keys
 
+    def _update_band(self, current: QPointF) -> None:
+        """Draw the selection window while the button is held (S3)."""
+        if self._band_origin is None:
+            return
+        rect = QRectF(self._band_origin, current).normalized()
+        if self._band_item is None:
+            fill = QColor(_PALETTE["handle_selected"])
+            fill.setAlpha(40)
+            self._band_item = QGraphicsRectItem(rect)
+            self._band_item.setPen(_BAND_PEN)
+            self._band_item.setBrush(QBrush(fill))
+            self._band_item.setZValue(3)
+            self._scene.addItem(self._band_item)
+        else:
+            self._band_item.setRect(rect)
+
+    def _finish_band(self, current: QPointF) -> None:
+        """A click on empty space deselects; a drag selects what the window covers (S3)."""
+        origin = self._band_origin
+        self._band_origin = None
+        if self._band_item is not None:
+            self._scene.removeItem(self._band_item)
+            self._band_item = None
+        if origin is None:
+            return
+        start = self.mapFromScene(origin)
+        end = self.mapFromScene(current)
+        if hypot(end.x() - start.x(), end.y() - start.y()) <= BAND_CLICK_PX:
+            self.clear_selection()
+            return
+        rect = QRectF(origin, current).normalized()
+        # Left to right takes what stays inside; right to left takes what it touches.
+        self.select_vertices(self._vertices_in(rect, window=current.x() >= origin.x()))
+
+    def _vertices_in(self, rect: QRectF, *, window: bool) -> list[tuple[str, int]]:
+        """Vertices inside the rectangle, plus, for a crossing window, the edges it touches."""
+        chosen: list[tuple[str, int]] = []
+        for name, contour in ((OUTER, self._section.outer), (INNER, self._section.inner)):
+            if contour is None or not contour.points:
+                continue
+            count = len(contour.points)
+            for index, point in enumerate(contour.points):
+                scene_point = QPointF(point.x, -point.y)
+                if rect.contains(scene_point):
+                    chosen.append((name, index))
+                    continue
+                if window:
+                    continue
+                following = contour.points[(index + 1) % count]
+                edge = QLineF(scene_point, QPointF(following.x, -following.y))
+                if _line_hits_rect(edge, rect):
+                    chosen.append((name, index))
+        return chosen
+
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
         if event.button() == Qt.MouseButton.MiddleButton:
             self._pan_origin = event.position().toPoint()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.RightButton and self._rectangle_armed:
+            self.cancel_rectangle_tool()
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton and self._rectangle_armed:
+            self.setFocus()
+            point, _ = self.snapped_point(self.mapToScene(event.position().toPoint()))
+            if self._rectangle_start is None:
+                self._rectangle_start = point
+                event.accept()
+                return
+            try:
+                corners = rectangle_ring(self._rectangle_start, point)
+            except SketchError as error:
+                self.editRejected.emit(error.code)
+                self.cancel_rectangle_tool()
+                event.accept()
+                return
+            self.cancel_rectangle_tool()
+            self.replace_outer(corners, strings.label_for("undo_rectangle"))
             event.accept()
             return
 
@@ -1561,7 +1762,7 @@ class CanvasView(QGraphicsView):
             if len(self._section.outer.points) >= 3:
                 self.close_contour()
             else:
-                self.cancel_drawing()
+                self.end_drawing()
             event.accept()
             return
 
@@ -1605,8 +1806,10 @@ class CanvasView(QGraphicsView):
                     self.select_segment(*segment)
                     event.accept()
                     return
-                self.clear_selection()
-                self.begin_drawing()
+                # Empty space: a click deselects and a drag opens a selection window (S1, S3).
+                self._band_origin = scene_pos
+                event.accept()
+                return
             point, _ = self.snapped_point(scene_pos)
             self.add_vertex(point.x, point.y)
             event.accept()
@@ -1624,6 +1827,25 @@ class CanvasView(QGraphicsView):
             return
 
         scene_pos = self.mapToScene(event.position().toPoint())
+        if self._rectangle_start is not None:
+            point, _ = self.snapped_point(scene_pos)
+            rect = QRectF(
+                QPointF(self._rectangle_start.x, -self._rectangle_start.y),
+                QPointF(point.x, -point.y),
+            ).normalized()
+            if self._rectangle_preview is None:
+                self._rectangle_preview = QGraphicsRectItem(rect)
+                self._rectangle_preview.setPen(_DRAFT_PEN)
+                self._rectangle_preview.setZValue(2)
+                self._scene.addItem(self._rectangle_preview)
+            else:
+                self._rectangle_preview.setRect(rect)
+            event.accept()
+            return
+        if self._band_origin is not None:
+            self._update_band(scene_pos)
+            event.accept()
+            return
         self._cursor_scene = scene_pos
         point, kind = self.snapped_point(scene_pos)
         self.snapChanged.emit(kind.value if kind is not None else "")
@@ -1662,6 +1884,11 @@ class CanvasView(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton and self._pan_origin is not None:
             self._pan_origin = None
             self.viewport().unsetCursor()
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton and self._band_origin is not None:
+            self._finish_band(self.mapToScene(event.position().toPoint()))
             event.accept()
             return
 
@@ -1713,16 +1940,10 @@ class CanvasView(QGraphicsView):
             return
         # `Esc` is not handled here: the command it cancels belongs to the window (spec S15),
         # so leaving the key alone lets it travel up to the window that owns the command.
-        if key == Qt.Key.Key_Delete and self._selected_dimension is not None:
-            self.delete_dimension(self._selected_dimension)
-            event.accept()
-            return
-        if key == Qt.Key.Key_Delete and self._selected is not None:
-            contour, index = self._selected
-            self.delete_vertex(contour, index)
-            self.clear_selection()
-            event.accept()
-            return
+        if key == Qt.Key.Key_Delete:
+            if self.delete_selection():
+                event.accept()
+                return
         if self._begin_segment_typing(event.text()):
             event.accept()
             return

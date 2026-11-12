@@ -49,10 +49,22 @@ PDF/PNG reports, **DXF import/export**.
 
 1. Pick a template on the right and type its parameters in the active unit: the section is
    drawn as soon as the template or a parameter changes, so **Aplicar** is only a convenience.
-   Or press **Nueva geometría libre** and draw with the mouse: click to add a vertex; the first
-   vertex turns green as the closing target, so clicking it (or the right button, or `Enter`)
-   closes the contour, and `Esc` cancels. `F8` toggles ortho mode; snaps appear for endpoints,
-   intersections, midpoints, centres and perpendicular feet.
+   Or press **Nueva geometría libre** and draw with the mouse: **Dibujar** (`L`) arms the
+   command, clicks add vertices, and the first vertex turns green as the closing target, so
+   clicking it (or the right button, or `Enter`) closes the contour. A click on empty space no
+   longer draws or erases anything: it deselects. `Esc` leaves the command **and keeps what you
+   traced**, as an open contour you can select and continue; `Enter` repeats the last command.
+   `F8` toggles ortho mode; snaps appear for endpoints, intersections, midpoints, centres and
+   perpendicular feet.
+   **Ctrl+A** selects every vertex, dragging left to right selects what stays inside a window
+   (right to left, what it touches), and `Supr` deletes the selection in one undo step.
+   **Dibujo** holds the contour tools: **Rectángulo** by two opposite corners, **Chaflán** of the
+   selected vertex, **Desplazar hacia dentro / hacia fuera** at a distance — how a hollow section
+   gets its thickness — and **Reflejar** horizontally or vertically about the contour's centre.
+   An edit that would collapse or fold the contour is refused with a message instead of saving
+   broken geometry, and it drops the placed dimensions, because their references moved.
+   `Recortar` and `Alargar` are not there yet: they recortan una entidad contra otra, and this
+   model holds one closed contour, so they arrive with arcs and multiple entities.
    A template section belongs to its parameters, so its vertices stay locked. When you want to
    adjust it by hand, **Convertir a geometría libre** keeps the contour exactly as drawn and
    hands you the vertices; **Deshacer** puts the template back.

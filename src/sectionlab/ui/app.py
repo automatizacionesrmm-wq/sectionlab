@@ -17,6 +17,7 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, QPointF, QProcess, QSize, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QInputDialog,
     QApplication,
     QFileDialog,
     QDialog,
@@ -42,7 +43,9 @@ from sectionlab.core.document import (
 import sectionlab
 from sectionlab import __version__
 from sectionlab.core.engine import InvalidSectionError, SectionProperties, calculate
+from sectionlab.core.edit import chamfer, mirror, offset
 from sectionlab.core.model import Contour, Section
+from sectionlab.core.sketch import SketchError
 from sectionlab.core.snap import SNAP_KINDS, SnapKind
 from sectionlab.core.templates import TemplateKind, TemplateParameterError, build_section
 from sectionlab.core.units import Unit
@@ -157,6 +160,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 820)
 
         self._interactive = interactive
+        self._last_command: str | None = None
         self._settings = settings or load_settings()
         self._unit = self._settings.unit
         self._decimals = self._settings.decimals
@@ -493,6 +497,40 @@ class MainWindow(QMainWindow):
         self.action_dimension_tool.setStatusTip(strings.label_for("dimension_tool_tip"))
         self.action_dimension_tool.toggled.connect(self.set_dimension_tool)
 
+        self.action_draw = QAction(strings.label_for("draw"), self)
+        self.action_draw.setCheckable(True)
+        self.action_draw.setShortcut(QKeySequence("L"))
+        self.action_draw.setStatusTip(strings.label_for("draw_tip"))
+        self.action_draw.toggled.connect(self.set_draw_tool)
+
+        self.action_rectangle = QAction(strings.label_for("rectangle"), self)
+        self.action_rectangle.setShortcut(QKeySequence("R"))
+        self.action_rectangle.setStatusTip(strings.label_for("rectangle_tip"))
+        self.action_rectangle.triggered.connect(self.start_rectangle)
+
+        self.action_chamfer = QAction(strings.label_for("chamfer"), self)
+        self.action_chamfer.setStatusTip(strings.label_for("chamfer_tip"))
+        self.action_chamfer.triggered.connect(self.apply_chamfer)
+
+        self.action_offset = QAction(strings.label_for("offset"), self)
+        self.action_offset.setStatusTip(strings.label_for("offset_tip"))
+        self.action_offset.triggered.connect(lambda: self.apply_offset(outward=False))
+
+        self.action_offset_outward = QAction(strings.label_for("offset_outward"), self)
+        self.action_offset_outward.triggered.connect(lambda: self.apply_offset(outward=True))
+
+        self.action_mirror_vertical = QAction(strings.label_for("mirror_vertical"), self)
+        self.action_mirror_vertical.setStatusTip(strings.label_for("mirror_tip"))
+        self.action_mirror_vertical.triggered.connect(lambda: self.apply_mirror("vertical"))
+
+        self.action_mirror_horizontal = QAction(strings.label_for("mirror_horizontal"), self)
+        self.action_mirror_horizontal.setStatusTip(strings.label_for("mirror_tip"))
+        self.action_mirror_horizontal.triggered.connect(lambda: self.apply_mirror("horizontal"))
+
+        self.action_select_all = QAction(strings.label_for("select_all"), self)
+        self.action_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
+        self.action_select_all.triggered.connect(self.select_all)
+
         self.action_guides = QAction(strings.label_for("guides"), self)
         self.action_guides.setCheckable(True)
         self.action_guides.setChecked(True)
@@ -566,6 +604,18 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addAction(self.action_insert_vertex)
         edit_menu.addAction(self.action_delete_vertex)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self.action_select_all)
+
+        draw_menu = self.menuBar().addMenu(strings.label_for("menu_draw"))
+        draw_menu.addAction(self.action_draw)
+        draw_menu.addAction(self.action_rectangle)
+        draw_menu.addSeparator()
+        draw_menu.addAction(self.action_chamfer)
+        draw_menu.addAction(self.action_offset)
+        draw_menu.addAction(self.action_offset_outward)
+        draw_menu.addAction(self.action_mirror_vertical)
+        draw_menu.addAction(self.action_mirror_horizontal)
 
         view_menu = self.menuBar().addMenu(strings.label_for("menu_view"))
         for action in (self.action_zoom_in, self.action_zoom_out, self.action_fit):
@@ -615,6 +665,7 @@ class MainWindow(QMainWindow):
             (self.action_calculate, "calculate"),
             (self.action_undo, "undo"),
             (self.action_redo, "redo"),
+            (self.action_draw, "draw"),
             (self.action_ortho, "ortho"),
             (self.action_dimension_tool, "measure"),
             (self.action_guides, "snap"),
@@ -628,6 +679,7 @@ class MainWindow(QMainWindow):
             [self.action_calculate],
             [file_button],
             [self.action_undo, self.action_redo],
+            [self.action_draw],
             [vertex_button],
             [self.action_ortho, self.action_dimension_tool, self.action_guides],
             [self.action_zoom_in, self.action_zoom_out, self.action_fit],
@@ -646,6 +698,13 @@ class MainWindow(QMainWindow):
                     toolbar.addWidget(entry)
                 else:
                     toolbar.addAction(entry)
+        button = toolbar.widgetForAction(self.action_calculate)
+        if isinstance(button, QToolButton):
+            button.setObjectName("primary")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setMinimumWidth(128)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _menu_button(self, parent, glyph: str, label_key: str, menu: QMenu) -> QToolButton:
         """One button that opens a menu, so a whole group costs a single icon (spec S14)."""
@@ -685,11 +744,106 @@ class MainWindow(QMainWindow):
 
     def active_command(self) -> str | None:
         """The command running right now, if any (spec S15)."""
+        if self.canvas.is_placing_rectangle():
+            return "rectangle"
         if self.canvas.is_placing_dimension():
             return "dimension"
         if self.canvas.is_drawing():
             return "draw"
         return None
+
+    def set_draw_tool(self, active: bool) -> None:
+        """Arm or leave the draw command, and keep the button honest (S1, S2)."""
+        if active:
+            if not self.canvas.is_editable():
+                self.action_draw.setChecked(False)
+                return
+            self.canvas.begin_drawing()
+            self._last_command = "draw"
+            self._set_message(strings.label_for("draw_armed"))
+            return
+        self.canvas.end_drawing()
+
+    def select_all(self) -> None:
+        """`Ctrl+A`: every vertex of the section (S3)."""
+        count = self.canvas.select_all()
+        message = (
+            strings.label_for("selection_count").format(count=count)
+            if count
+            else strings.label_for("nothing_selected")
+        )
+        self._set_message(message)
+
+    def start_rectangle(self) -> None:
+        """Rectangle by two opposite corners (S4)."""
+        if not self.canvas.is_editable():
+            return
+        self.canvas.begin_rectangle_tool()
+        self._last_command = "rectangle"
+        self._set_message(strings.label_for("rectangle_armed"))
+
+    def apply_chamfer(self) -> None:
+        """Cut the selected corner (S4)."""
+        chosen = self.canvas.selected_vertex()
+        if chosen is None:
+            self._set_message(strings.label_for("edit_needs_vertices"))
+            return
+        distance, accepted = QInputDialog.getDouble(
+            self,
+            strings.label_for("chamfer"),
+            strings.label_for("chamfer_distance"),
+            10.0,
+            0.0,
+            1_000_000.0,
+            2,
+        )
+        if not accepted:
+            return
+        contour = self.canvas.section().outer if chosen[0] == "outer" else self.canvas.section().inner
+        if contour is None:
+            return
+        try:
+            points = chamfer(contour.points, chosen[1], distance)
+        except SketchError as error:
+            self._set_message(strings.edit_error(error.code))
+            return
+        self._replace_contour_points(points, strings.label_for("undo_chamfer"))
+
+    def apply_offset(self, *, outward: bool) -> None:
+        """A parallel contour at a distance: the thickness of a hollow section (S4)."""
+        distance, accepted = QInputDialog.getDouble(
+            self,
+            strings.label_for("offset_outward" if outward else "offset"),
+            strings.label_for("offset_distance"),
+            5.0,
+            0.0,
+            1_000_000.0,
+            2,
+        )
+        if not accepted:
+            return
+        contour = self.canvas.section().outer
+        try:
+            points = offset(contour.points, distance, outward=outward)
+        except SketchError as error:
+            self._set_message(strings.edit_error(error.code))
+            return
+        self._replace_contour_points(points, strings.label_for("undo_offset"))
+
+    def apply_mirror(self, axis: str) -> None:
+        """Reflect the contour about its own centre (S4)."""
+        contour = self.canvas.section().outer
+        try:
+            points = mirror(contour.points, axis)
+        except SketchError as error:
+            self._set_message(strings.edit_error(error.code))
+            return
+        self._replace_contour_points(points, strings.label_for("undo_mirror"))
+
+    def _replace_contour_points(self, points, text: str) -> None:
+        self.canvas.replace_outer(points, text)
+        self._last_command = None
+        self._set_message(strings.label_for("applied_edit"))
 
     def cancel_active_command(self) -> bool:
         """`Esc`: leave the running command, then clear what is selected (spec S15).
@@ -699,10 +853,14 @@ class MainWindow(QMainWindow):
         never kills the command behind it.
         """
         command = self.active_command()
-        if command == "dimension":
+        if command == "rectangle":
+            self.canvas.cancel_rectangle_tool()
+        elif command == "dimension":
             self.set_dimension_tool(False)
         elif command == "draw":
-            self.canvas.cancel_drawing()
+            self.canvas.end_drawing()
+            self._set_message(strings.label_for("draw_left"))
+            return True
         elif (
             self.canvas.selected_dimension() is not None
             or self.canvas.selected_vertex() is not None
@@ -719,14 +877,26 @@ class MainWindow(QMainWindow):
         if event.key() == Qt.Key.Key_Escape and self.cancel_active_command():
             event.accept()
             return
+        if (
+            event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and self.active_command() is None
+            and self._last_command is not None
+        ):
+            self.repeat_last_command()
+            event.accept()
+            return
         super().keyPressEvent(event)
-        button = toolbar.widgetForAction(self.action_calculate)
-        if isinstance(button, QToolButton):
-            button.setObjectName("primary")
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            button.setMinimumWidth(128)
-            button.style().unpolish(button)
-            button.style().polish(button)
+
+    def repeat_last_command(self) -> None:
+        """`Enter` re-arms whatever command was last used, like a CAD's repeat (S1)."""
+        if self._last_command == "draw":
+            self.action_draw.setChecked(True)
+            self.set_draw_tool(True)
+        elif self._last_command == "rectangle":
+            self.start_rectangle()
+        elif self._last_command == "dimension":
+            self.action_dimension_tool.setChecked(True)
+            self.set_dimension_tool(True)
 
     # ------------------------------------------------------------------ theme
 
@@ -856,7 +1026,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_section(Section(outer=Contour(points=[])))
         self.canvas.set_editable(True)
         self.canvas.reset_view()
-        self.canvas.begin_drawing()
+        self.set_draw_tool(True)
         self._template_kind = None
         self._template_mode = False
         self._path = None
@@ -875,11 +1045,11 @@ class MainWindow(QMainWindow):
             self.canvas.begin_drawing()
 
     def delete_selected_vertex(self) -> None:
-        selected = self.canvas.selected_vertex()
-        if selected is None or not self.canvas.is_editable():
+        """`Supr`: delete every selected vertex, or the selected dimension (S3)."""
+        if not self.canvas.is_editable() and self.canvas.selected_dimension() is None:
             return
-        self.canvas.delete_vertex(*selected)
-        self.canvas.clear_selection()
+        if not self.canvas.delete_selection():
+            self._set_message(strings.label_for("nothing_selected"))
 
     def validation_message(self) -> str | None:
         """Spanish explanation of why the section cannot be calculated, or None."""
@@ -1112,7 +1282,7 @@ class MainWindow(QMainWindow):
     def _sync_undo_actions(self) -> None:
         self.action_undo.setEnabled(self.canvas.undo_stack().canUndo())
         self.action_redo.setEnabled(self.canvas.undo_stack().canRedo())
-        self.action_delete_vertex.setEnabled(self.canvas.selected_vertex() is not None)
+        self.action_delete_vertex.setEnabled(self.canvas.can_delete_selection())
         self.action_insert_vertex.setEnabled(self.canvas.is_editable())
 
     def _on_section_changed(self) -> None:
@@ -1148,6 +1318,7 @@ class MainWindow(QMainWindow):
     def _on_vertex_selected(self, contour: str, index: int) -> None:
         if contour:
             self.vertex_table.select_vertex(contour, index)
+        self.action_delete_vertex.setEnabled(self.canvas.can_delete_selection())
         self._sync_undo_actions()
 
     def _on_undo_index_changed(self) -> None:
@@ -1393,6 +1564,10 @@ class MainWindow(QMainWindow):
 
     def _on_drawing_changed(self, drawing: bool) -> None:
         self.action_insert_vertex.setEnabled(self.canvas.is_editable())
+        if self.action_draw.isChecked() != drawing:
+            self.action_draw.blockSignals(True)
+            self.action_draw.setChecked(drawing)
+            self.action_draw.blockSignals(False)
 
     def _block_calculation(self, message: str) -> None:
         self._props = None

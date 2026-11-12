@@ -126,6 +126,34 @@ UI: dict[str, str] = {
     "undo_dimension": "cota",
     "undo_dimension_add": "agregar cota",
     "undo_dimension_delete": "eliminar cota",
+    "undo_delete_selection": "borrar selección",
+    "undo_chamfer": "chaflán",
+    "undo_offset": "desplazar contorno",
+    "undo_mirror": "reflejar contorno",
+    "undo_rectangle": "rectángulo",
+    "draw_armed": "Dibujar: clic para añadir vértices · Enter o clic en el primero cierra · Esc termina sin cerrar",
+    "draw_left": "Dibujo terminado sin cerrar · Esc de nuevo limpia la selección",
+    "nothing_selected": "No hay nada seleccionado",
+    "selection_count": "{count} elementos seleccionados",
+    "chamfer_tip": "Redondea la esquina seleccionada: elige un vértice y aplica",
+    "offset_tip": "Crea un contorno paralelo: espesor del hueco",
+    "mirror_tip": "Refleja el contorno respecto de su centro",
+    "rectangle_tip": "Rectángulo por dos esquinas opuestas",
+    "edit_needs_vertices": "Elige un vértice del contorno para el chaflán",
+    "draw": "Dibujar",
+    "draw_tip": "Arma el comando de dibujo: los clics añaden vértices",
+    "menu_draw": "Dibujo",
+    "rectangle": "Rectángulo",
+    "rectangle_armed": "Rectángulo: clic en la primera esquina y luego en la opuesta · Esc cancela",
+    "chamfer": "Chaflán",
+    "chamfer_distance": "Distancia del chaflán (mm)",
+    "offset": "Desplazar hacia dentro",
+    "offset_outward": "Desplazar hacia fuera",
+    "offset_distance": "Distancia del desplazamiento (mm)",
+    "mirror_vertical": "Reflejar horizontalmente",
+    "mirror_horizontal": "Reflejar verticalmente",
+    "select_all": "Seleccionar todo",
+    "applied_edit": "Contorno actualizado",
     "dimension_tool": "Acotar",
     "dimension_tool_tip": (
         "Clic en una referencia y luego en otra; el tercer clic coloca la cota (Esc cancela)"
@@ -225,6 +253,7 @@ UI: dict[str, str] = {
         "Geometría libre: clic para añadir vértices · Enter o botón derecho para cerrar · Esc cancela"
     ),
     "short_calculate": "Calcular",
+    "short_draw": "Dibujar",
     "short_open": "Abrir",
     "short_save": "Guardar",
     "short_csv": "CSV",
@@ -265,6 +294,22 @@ def message_for(code: str) -> str:
         return ISSUE_MESSAGES[code]
     except KeyError as error:
         raise KeyError(f"unknown validation code: {code}") from error
+
+
+EDIT_ERRORS = {
+    "chamfer_too_long": "El chaflán no puede pasar de la mitad del lado",
+    "offset_collapsed": "El desplazamiento colapsaría el contorno",
+    "offset_crosses_itself": "El desplazamiento cruzaría el contorno sobre sí mismo",
+    "offset_too_far": "El desplazamiento es mayor que una parte del contorno",
+    "too_few_vertices": "El contorno necesita al menos tres vértices",
+    "degenerate_rectangle": "El rectángulo necesita dos esquinas distintas",
+    "unknown_axis": "Eje de reflejo desconocido",
+}
+
+
+def edit_error(code: str) -> str:
+    """Spanish message for a refused contour edit (spec S4)."""
+    return EDIT_ERRORS.get(code, code)
 
 
 def label_for(key: str) -> str:

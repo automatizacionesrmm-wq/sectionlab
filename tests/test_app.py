@@ -256,11 +256,12 @@ def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
     toolbar = window.findChild(QToolBar, "main_toolbar")
     assert toolbar is not None
     actions = [action for action in toolbar.actions() if not action.isSeparator()]
-    # Eleven command actions plus the two menu buttons, which Qt also wraps as actions
-    # (spec S14): the ribbon no longer carries one icon per file and vertex operation.
-    assert len(actions) == 13
+    # Twelve command actions plus the two menu buttons, which Qt also wraps as actions
+    # (spec S14): the ribbon no longer carries one icon per file and vertex operation, and
+    # the contour tools live in the Dibujo menu instead of the ribbon.
+    assert len(actions) == 14
     commands = [action for action in actions if not action.icon().isNull()]
-    assert len(commands) == 11
+    assert len(commands) == 12
     for action in commands:
         assert action.text()
 
@@ -1105,7 +1106,9 @@ def test_escape_abandons_the_polyline_being_drawn(window: MainWindow, qtbot) -> 
     assert "Esc cancela" in window._message_label.text()
     qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
     assert window.active_command() is None
-    assert window.canvas.section().outer.points == []
+    # The command leaves and what was traced stays, open and selectable (S2).
+    assert [point.x for point in window.canvas.section().outer.points] == [0.0, 100.0]
+    assert window.canvas.section().outer.closed is False
 
 
 def test_escape_without_a_command_clears_the_selection(window: MainWindow, qtbot) -> None:
@@ -1138,3 +1141,94 @@ def test_escape_while_typing_a_dimension_value_only_closes_the_editor(
     qtbot.keyClick(editor, Qt.Key.Key_Escape)
     assert window.canvas.has_dimension_editor() is False
     assert window.active_command() == "dimension"  # the command behind the editor survives
+
+
+# ------------------------------------------------- selection and contour tools (S1, S3, S4)
+
+
+def test_ctrl_a_selects_every_vertex_of_the_section(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.select_all()
+    assert window.canvas.selected_vertices() == (
+        ("outer", 0),
+        ("outer", 1),
+        ("outer", 2),
+        ("outer", 3),
+    )
+
+
+def test_supr_deletes_every_selected_vertex(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.select_all()
+    window.action_delete_vertex.trigger()
+    assert window.canvas.section().outer.points == []
+
+
+def test_supr_is_off_while_nothing_is_selected(window: MainWindow) -> None:
+    """Delete follows the selection: off when there is nothing to delete (S3)."""
+    free_rectangle(window)
+    assert window.action_delete_vertex.isEnabled() is False
+    window.action_delete_vertex.trigger()
+    assert len(window.canvas.section().outer.points) == 4
+
+
+def test_the_draw_button_arms_the_command_and_escape_leaves_it(window: MainWindow, qtbot) -> None:
+    window.start_free_geometry()
+    window.action_draw.setChecked(True)
+    assert window.canvas.is_drawing() is True
+    assert window.active_command() == "draw"
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.active_command() is None
+    assert window.action_draw.isChecked() is False
+
+
+def test_enter_repeats_the_last_command(window: MainWindow, qtbot) -> None:
+    window.start_free_geometry()
+    window.action_draw.setChecked(True)
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.active_command() is None
+    qtbot.keyClick(window, Qt.Key.Key_Return)
+    assert window.active_command() == "draw"
+
+
+def test_escape_leaves_the_rectangle_tool(window: MainWindow, qtbot) -> None:
+    """Esc unwinds one level: the rectangle first, then the draw command under it (S2)."""
+    window.start_free_geometry()
+    window.start_rectangle()
+    assert window.active_command() == "rectangle"
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.active_command() == "draw"
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.active_command() is None
+
+
+def test_a_chamfer_without_a_selected_vertex_explains_itself(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.apply_chamfer()
+    assert window._message_label.text() == strings.label_for("edit_needs_vertices")
+
+
+def test_the_mirror_reflects_the_contour_and_keeps_the_area(window: MainWindow) -> None:
+    window.canvas.set_section(
+        Section(
+            outer=Contour(
+                points=[Point(0.0, 0.0), Point(100.0, 0.0), Point(0.0, 50.0)],
+                closed=True,
+            )
+        )
+    )
+    window.apply_mirror("vertical")
+    points = window.canvas.section().outer.points
+    assert sorted((round(point.x, 6), round(point.y, 6)) for point in points) == [
+        (0.0, 0.0),
+        (100.0, 0.0),
+        (100.0, 50.0),
+    ]
+
+
+def test_an_edit_that_moves_vertices_drops_the_placed_dimensions(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    assert len(window.canvas.dimensions()) == 1
+    window.apply_mirror("vertical")
+    assert window.canvas.dimensions() == []
