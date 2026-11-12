@@ -15,6 +15,12 @@ truth for scope, behavior and conventions.
 - Exact input: typed vertex list plus an editable vertex table; snaps for endpoint,
   intersection, midpoint, arc/circle centre and perpendicular, plus ortho mode.
 - Editing: move/insert/delete vertex, undo/redo.
+- Dimensions placed by hand: a dimension tool that measures any distance inside the section
+  (a segment, or two references picked with the snaps), a dimension line the user can drag,
+  deletion, and values that drive the geometry — or, on a template, the parameter behind them.
+  No edge is dimensioned unless the user asks for it.
+- Alignment guides: while the cursor shares an x or a y with a vertex, a midpoint or the
+  centre, a dashed reference line appears and the point that gets placed is exactly aligned.
 - Active unit `mm`, `cm`, `m` or `in` for input and output; internal model always in mm.
 - Outputs about centroidal axes: A, perimeter, centroid, Ix, Iy, Ixy, principal I1/I2 with
   angle, radii of gyration, elastic moduli Sx/Sy, bounding box.
@@ -50,12 +56,22 @@ PDF/PNG reports, **DXF import/export**.
    A template section belongs to its parameters, so its vertices stay locked. When you want to
    adjust it by hand, **Convertir a geometría libre** keeps the contour exactly as drawn and
    hands you the vertices; **Deshacer** puts the template back.
-2. Every segment carries its own dimension, written outside the contour in the active unit:
-   widths and heights for straight edges, a length for slanted ones. **Ver → Cotas**
-   (`Ctrl+D`) shows and hides them. Double-click an editable dimension, type the new value and
-   press `Enter`: the section moves so that segment measures that value, in one undo step. The
-   closing edge stays read-only because its length follows from the others, and a refused
-   value explains itself in the status bar.
+2. Dimensions are yours to place. Press **Acotar** (`D`) and pick what you want to measure:
+   one click on an edge measures that edge, or two clicks on references — a vertex, the middle
+   of an edge, any pair of points the snaps can reach — measure the distance between them. The
+   dimension line follows the cursor and the third click places it, as far from the geometry as
+   you like; drag its number later to move it, and `Supr` deletes the selected one. Nothing is
+   dimensioned that you did not dimension: the drawing starts clean, and **Ver → Cotas**
+   (`Ctrl+D`) only hides and shows what you placed.
+   Double-click a dimension, type the value and press `Enter`: the side you picked second moves
+   so the measure is exactly what you typed, in one undo step. On a template section the same
+   edit moves the parameter behind that measure, and the form shows it. A dimension that no
+   single rule can satisfy — the closing edge, a slanted length, a distance two parameters
+   share — is drawn dashed and reference-only, and double-clicking it explains why in the
+   status bar.
+   While you place or drag points, dashed **alignment guides** appear when the cursor shares an
+   x or a y with an existing vertex, midpoint or centre, and lock the point to that coordinate;
+   **Ver → Líneas de referencia** (`Ctrl+L`) turns them off.
 3. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.

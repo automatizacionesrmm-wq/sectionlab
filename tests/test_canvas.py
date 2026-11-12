@@ -6,6 +6,13 @@ import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QWheelEvent
 
+from sectionlab.core.dimensions import (
+    ANCHOR_VERTEX,
+    HORIZONTAL,
+    SEGMENT_LENGTH,
+    VERTICAL,
+    Anchor,
+)
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
 from sectionlab.core.snap import SnapKind
@@ -511,28 +518,59 @@ def test_two_points_cannot_close_into_a_contour(canvas: CanvasView) -> None:
     assert canvas.is_drawing()
 
 
-# --------------------------------------------------------------- dimensions (specs S2, S4)
+# ------------------------------------------------------------ placed dimensions (S1, S3)
 
 
-def test_the_canvas_measures_every_segment_it_draws(canvas: CanvasView) -> None:
+def place(canvas: CanvasView, first: int, second: int, kind: str, offset_mm: float = 12.0):
+    return canvas.add_dimension(
+        Anchor(ANCHOR_VERTEX, first), Anchor(ANCHOR_VERTEX, second), kind, offset_mm=offset_mm
+    )
+
+
+def place_segment(canvas: CanvasView, index: int, kind: str = SEGMENT_LENGTH):
+    count = len(canvas.section().outer.points)
+    return place(canvas, index, (index + 1) % count, kind)
+
+
+def mouse_event(kind: QEvent.Type, point) -> QMouseEvent:
+    return QMouseEvent(
+        kind,
+        QPointF(point),
+        QPointF(point),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_a_section_starts_without_any_dimension(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
-    assert [round(dimension.value, 3) for dimension in canvas.dimensions()] == [100.0, 100.0, 100.0, 100.0]
+    assert canvas.dimensions() == []
+
+
+def test_a_placed_dimension_is_measured_from_the_geometry(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    place_segment(canvas, 0)
+    assert [canvas._dimension_text(item) for item in canvas.dimensions()] == ["100.00"]
 
 
 def test_a_dimension_is_written_in_the_active_unit(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
+    place_segment(canvas, 0)
     canvas.set_display(Unit.CM, 2)
-    assert [canvas._dimension_text(d) for d in canvas.dimensions()] == ["10.00"] * 4
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "10.00"
     canvas.set_display(Unit.MM, 1)
-    assert [canvas._dimension_text(d) for d in canvas.dimensions()] == ["100.0"] * 4
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "100.0"
 
 
 def test_dimensions_can_be_switched_off_without_losing_them(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
+    place_segment(canvas, 0)
+    place_segment(canvas, 1)
     assert canvas.dimensions_visible()
     canvas.set_dimensions_visible(False)
     assert not canvas.dimensions_visible()
-    assert len(canvas.dimensions()) == 4
+    assert len(canvas.dimensions()) == 2
 
 
 def test_the_centroid_and_its_axes_are_kept_for_the_painter(canvas: CanvasView) -> None:
@@ -545,84 +583,66 @@ def test_the_centroid_and_its_axes_are_kept_for_the_painter(canvas: CanvasView) 
 
 def test_the_edited_value_highlights_the_matching_dimension(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
+    place_segment(canvas, 0)
     canvas.set_value_highlight(100.0, "b")
     assert canvas.value_highlight() == (100.0, "b")
     assert canvas._dimension_text(canvas.dimensions()[0]) == "b = 100.00"
 
 
-def test_a_template_section_still_shows_its_dimensions(canvas: CanvasView) -> None:
-    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"width": 200.0, "height": 100.0}))
-    assert len(canvas.dimensions()) == 4
-    assert sorted({round(d.value, 3) for d in canvas.dimensions()}) == [100.0, 200.0]
+def test_a_template_section_can_carry_its_own_dimension(canvas: CanvasView) -> None:
+    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"b": 200.0, "h": 100.0}))
+    canvas.set_editable(False)
+    place(canvas, 0, 1, HORIZONTAL)
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "200.00"
 
 
 def test_the_drawing_renders_with_dimensions_axes_and_a_centroid(canvas: CanvasView) -> None:
-    """Paint the whole foreground once: dimensions, X/Y labels, centroid and snap glyph.
+    """Paint the whole foreground once: dimensions, guides, X/Y labels and a centroid.
 
     Rendering is what catches an error inside the painter, which no state assertion sees.
     """
-    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"width": 200.0, "height": 100.0}))
+    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"b": 200.0, "h": 100.0}))
     canvas.set_centroid(0.0, 50.0, angle_deg=15.0)
     canvas.set_value_highlight(200.0, "b")
+    canvas.set_editable(True)
+    place(canvas, 0, 1, HORIZONTAL)
+    canvas.fit_to_content()
     canvas._snap_kind = SnapKind.ENDPOINT
-    canvas._cursor_scene = QPointF(100.0, 0.0)
+    canvas._cursor_scene = QPointF(100.0, -40.0)
+    canvas.snapped_point(QPointF(100.0, -40.0))
     canvas.select_vertex(OUTER, 1)
     pixmap = canvas.grab()
     assert not pixmap.isNull()
     image = pixmap.toImage()
-    colours = {image.pixelColor(x, y).name() for x in range(0, image.width(), 7) for y in range(0, image.height(), 7)}
-    # The centroid marker and the dimension text must actually reach the screen.
+    colours = {
+        image.pixelColor(x, y).name()
+        for x in range(0, image.width(), 7)
+        for y in range(0, image.height(), 7)
+    }
     assert tokens(Theme.DARK)["centroid"].lower() in colours
     assert len(colours) > 5
 
 
-# ------------------------------------------------ parametric dimensions (specs S3, S6)
+# ------------------------------------------------------ a dimension drives (S5, S6, S9)
 
 
-def test_double_clicking_a_dimension_opens_its_editor_prefilled(canvas: CanvasView) -> None:
+def test_placing_a_dimension_and_driving_it_is_one_undo_step(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
-    canvas.set_display(Unit.CM, 2)
-    dimension = canvas.dimensions()[0]
-    centre = canvas._dimension_box(dimension).center()
-    event = QMouseEvent(
-        QEvent.Type.MouseButtonDblClick,
-        QPointF(centre),
-        QPointF(centre),
-        Qt.MouseButton.LeftButton,
-        Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-    )
-    canvas.mouseDoubleClickEvent(event)
-    assert canvas.has_dimension_editor()
-    editor = canvas._dimension_editor
-    assert editor is not None
-    assert editor.text() == "10.00"
-    editor.setText("12.5")
-    editor.returnPressed.emit()
-    assert not canvas.has_dimension_editor()
-    assert canvas.section().outer.points[1] == Point(125.0, 0)
-
-
-def test_typing_a_dimension_moves_the_geometry_in_one_undo_step(canvas: CanvasView) -> None:
-    canvas.set_section(free_section())
-    assert canvas.apply_dimension_length(0, 150.0) is True
-    points = canvas.section().outer.points
-    assert points[0] == Point(0, 0)
-    assert points[1] == Point(150, 0)
-    assert len(points) == 4
+    dimension = place_segment(canvas, 0)
+    assert canvas.undo_stack().undoText() == strings.label_for("undo_dimension_add")
+    assert canvas.drive_dimension(dimension.id, 150.0) is True
+    assert canvas.section().outer.points[1] == Point(150, 0)
     assert canvas.undo_stack().undoText() == strings.label_for("undo_dimension")
     canvas.undo_stack().undo()
     assert canvas.section().outer.points[1] == Point(100, 0)
+    assert len(canvas.dimensions()) == 1
 
 
-def test_the_unit_typed_is_the_unit_read_back(canvas: CanvasView) -> None:
-    """A dimension typed in centimetres must read back as the same number (spec S2)."""
+def test_a_driven_value_is_read_back_from_the_geometry(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
-    canvas.set_display(Unit.CM, 2)
-    assert canvas.apply_dimension_length(0, 25.0 * 10) is True
-    assert canvas._dimension_text(canvas.dimensions()[0]) == "25.00"
-    canvas.set_display(Unit.IN, 3)
-    assert canvas._dimension_text(canvas.dimensions()[0]) == "9.843"
+    dimension = place_segment(canvas, 0)
+    canvas.drive_dimension(dimension.id, 250.0)
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "250.00"
 
 
 @pytest.mark.parametrize(
@@ -631,41 +651,110 @@ def test_the_unit_typed_is_the_unit_read_back(canvas: CanvasView) -> None:
         (3, 10.0, "closing_segment"),
         (0, 0.0, "non_positive"),
         (0, 100.0, "unchanged"),
-        (9, 10.0, "out_of_range"),
     ],
 )
-def test_a_refused_dimension_reports_its_reason(canvas: CanvasView, index, length, code) -> None:
+def test_a_refused_drive_reports_its_reason(canvas: CanvasView, index, length, code) -> None:
     canvas.set_section(free_section())
+    dimension = place_segment(canvas, index)
     seen: list[str] = []
     canvas.editRejected.connect(seen.append)
-    assert canvas.apply_dimension_length(index, length) is False
+    assert canvas.drive_dimension(dimension.id, length) is False
     assert seen == [code]
 
 
-def test_a_slanted_segment_cannot_be_dimensioned(canvas: CanvasView) -> None:
-    canvas.set_section(
-        Section(outer=Contour(points=[Point(0, 0), Point(30, 40), Point(0, 40)]))
-    )
+def test_a_slanted_segment_dimension_is_reference_only(canvas: CanvasView) -> None:
+    canvas.set_section(Section(outer=Contour(points=[Point(0, 0), Point(30, 40), Point(0, 40)])))
+    dimension = place_segment(canvas, 0)
+    assert canvas.can_drive(dimension) is False
+    assert canvas.begin_dimension_edit(dimension) is False
     seen: list[str] = []
     canvas.editRejected.connect(seen.append)
-    assert canvas.apply_dimension_length(0, 60.0) is False
+    assert canvas.drive_dimension(dimension.id, 60.0) is False
     assert seen == ["slanted_segment"]
 
 
-def test_a_template_section_sends_the_edit_back_to_its_parameters(canvas: CanvasView) -> None:
-    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"width": 200.0, "height": 100.0}))
+def test_a_dimension_on_a_template_moves_its_parameter(canvas: CanvasView) -> None:
+    canvas.set_section(build_section(TemplateKind.RECTANGLE, {"b": 200.0, "h": 100.0}))
     canvas.set_editable(False)
+    dimension = place(canvas, 0, 1, HORIZONTAL)
+    assert canvas.drive_dimension(dimension.id, 300.0) is True
+    assert canvas.section().template.params["b"] == pytest.approx(300.0)
+    assert max(point.x for point in canvas.section().outer.points) == pytest.approx(300.0)
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "300.00"
+
+
+def test_a_dimension_a_template_cannot_drive_is_refused(canvas: CanvasView) -> None:
+    canvas.set_section(build_section(TemplateKind.I_PROFILE))
+    canvas.set_editable(False)
+    dimension = place(canvas, 3, 4, VERTICAL)
     seen: list[str] = []
     canvas.editRejected.connect(seen.append)
-    assert canvas.apply_dimension_length(0, 300.0) is False
-    assert seen == ["read_only"]
-    assert canvas.dimension_at(QPoint(10, 10)) is None
+    assert canvas.can_drive(dimension) is False
+    assert canvas.drive_dimension(dimension.id, 120.0) is False
+    assert seen == ["not_drivable"]
+
+
+def test_deleting_a_selected_dimension_is_undoable(canvas: CanvasView, qtbot) -> None:
+    canvas.set_section(free_section())
+    dimension = place_segment(canvas, 0)
+    canvas.select_dimension(dimension.id)
+    qtbot.keyClick(canvas, Qt.Key.Key_Delete)
+    assert canvas.dimensions() == []
+    assert canvas.undo_stack().undoText() == strings.label_for("undo_dimension_delete")
+    canvas.undo_stack().undo()
+    assert [item.id for item in canvas.dimensions()] == [dimension.id]
+
+
+def test_dragging_the_text_moves_the_line_and_not_the_geometry(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.fit_to_content()
+    dimension = place_segment(canvas, 0)
+    centre = canvas._dimension_box(dimension).center()
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, centre))
+    target = canvas.mapFromScene(QPointF(50.0, -30.0))
+    canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, target))
+    canvas.mouseReleaseEvent(mouse_event(QEvent.Type.MouseButtonRelease, target))
+    moved = canvas.dimensions()[0]
+    assert moved.offset_mm == pytest.approx(-30.0, abs=0.5)
+    assert canvas.section().outer.points[1] == Point(100, 0)
+
+
+# ------------------------------------------------------------------ editor (S5, S7)
+
+
+def test_double_clicking_a_dimension_opens_its_editor_prefilled(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    dimension = place_segment(canvas, 0)
+    centre = canvas._dimension_box(dimension).center()
+    canvas.mouseDoubleClickEvent(mouse_event(QEvent.Type.MouseButtonDblClick, centre))
+    assert canvas.has_dimension_editor()
+    editor = canvas._dimension_editor
+    assert editor is not None
+    assert editor.text() == "100.00"
+    editor.setText("125")
+    editor.returnPressed.emit()
+    assert not canvas.has_dimension_editor()
+    assert canvas.section().outer.points[1] == Point(125, 0)
+
+
+def test_the_unit_typed_is_the_unit_read_back(canvas: CanvasView) -> None:
+    """A dimension typed in centimetres must read back as the same number."""
+    canvas.set_section(free_section())
+    dimension = place_segment(canvas, 0)
+    canvas.set_display(Unit.CM, 2)
+    assert canvas.begin_dimension_edit(dimension) is True
+    assert canvas._dimension_editor is not None
+    canvas._dimension_editor.setText("25")
+    canvas._dimension_editor.returnPressed.emit()
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "25.00"
+    canvas.set_display(Unit.IN, 3)
+    assert canvas._dimension_text(canvas.dimensions()[0]) == "9.843"
 
 
 def test_a_dimension_typed_as_text_is_parsed_in_the_active_unit(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
+    dimension = place_segment(canvas, 0)
     canvas.set_display(Unit.CM, 2)
-    dimension = canvas.dimensions()[0]
     assert canvas.begin_dimension_edit(dimension) is True
     editor = canvas._dimension_editor
     assert editor is not None
@@ -676,9 +765,9 @@ def test_a_dimension_typed_as_text_is_parsed_in_the_active_unit(canvas: CanvasVi
 
 def test_a_dimension_that_is_not_a_number_is_refused(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
+    dimension = place_segment(canvas, 0)
     seen: list[str] = []
     canvas.editRejected.connect(seen.append)
-    dimension = canvas.dimensions()[0]
     assert canvas.begin_dimension_edit(dimension) is True
     editor = canvas._dimension_editor
     assert editor is not None
@@ -690,11 +779,112 @@ def test_a_dimension_that_is_not_a_number_is_refused(canvas: CanvasView) -> None
 
 def test_escape_abandons_a_dimension_edit(canvas: CanvasView) -> None:
     canvas.set_section(free_section())
-    dimension = canvas.dimensions()[0]
+    dimension = place_segment(canvas, 0)
     assert canvas.begin_dimension_edit(dimension) is True
     canvas.close_dimension_editor()
     assert canvas.has_dimension_editor() is False
     assert canvas.section().outer.points[1] == Point(100, 0)
+
+
+# ------------------------------------------------- references follow the geometry (S10)
+
+
+def test_inserting_a_vertex_keeps_the_dimension_attached(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    place_segment(canvas, 1)
+    canvas.add_vertex(50.0, 0.0, index=0)
+    kept = canvas.dimensions()[0]
+    assert (kept.first.index, kept.second.index) == (2, 3)
+
+
+def test_deleting_the_anchored_vertex_drops_the_dimension_and_says_so(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    place_segment(canvas, 0)
+    dropped: list[int] = []
+    canvas.dimensionsDropped.connect(dropped.append)
+    canvas.delete_vertex(OUTER, 0)
+    assert canvas.dimensions() == []
+    assert dropped == [1]
+
+
+# ------------------------------------------------------------ the dimension tool (S2)
+
+
+def test_a_click_on_an_edge_measures_that_edge_in_two_clicks(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.fit_to_content()
+    assert canvas.begin_dimension_tool() is True
+    edge = canvas.mapFromScene(QPointF(50.0, 0.0))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, edge))
+    assert len(canvas.pending_anchors()) == 2
+    outside = canvas.mapFromScene(QPointF(50.0, -25.0))
+    canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, outside))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, outside))
+    assert len(canvas.dimensions()) == 1
+    dimension = canvas.dimensions()[0]
+    assert dimension.kind == SEGMENT_LENGTH
+    assert dimension.offset_mm == pytest.approx(-25.0, abs=0.5)
+    assert canvas.pending_anchors() == ()
+
+
+def test_two_vertices_make_a_distance_dimension(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.fit_to_content()
+    canvas.begin_dimension_tool()
+    first = canvas.mapFromScene(QPointF(0.0, 0.0))
+    second = canvas.mapFromScene(QPointF(100.0, -100.0))
+    outside = canvas.mapFromScene(QPointF(160.0, -50.0))
+    for point in (first, second):
+        canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, point))
+    canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, outside))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, outside))
+    dimension = canvas.dimensions()[0]
+    assert dimension.kind == HORIZONTAL
+    assert canvas._dimension_text(dimension) == "100.00"
+
+
+def test_escape_leaves_the_tool(canvas: CanvasView, qtbot) -> None:
+    canvas.set_section(free_section())
+    assert canvas.begin_dimension_tool() is True
+    assert canvas.is_placing_dimension() is True
+    qtbot.keyClick(canvas, Qt.Key.Key_Escape)
+    assert canvas.is_placing_dimension() is False
+
+
+def test_the_tool_needs_a_section(canvas: CanvasView) -> None:
+    assert canvas.begin_dimension_tool() is False
+
+
+# ------------------------------------------------------- alignment guides (S12)
+
+
+def test_guides_lock_the_cursor_to_a_vertex_coordinate(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    assert canvas.guides_visible()
+    point, kind = canvas.snapped_point(QPointF(103.0, -40.0))
+    assert kind is None
+    assert point.x == pytest.approx(100.0)
+    assert canvas.guides_label().startswith("X con")
+
+
+def test_a_snap_point_wins_over_a_guide(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    point, kind = canvas.snapped_point(QPointF(1.0, -1.0))
+    assert kind is SnapKind.ENDPOINT
+    assert point == Point(0.0, 0.0)
+    assert canvas.current_guides() == []
+
+
+def test_guides_can_be_switched_off(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    canvas.set_guides_visible(False)
+    point, kind = canvas.snapped_point(QPointF(103.0, -40.0))
+    assert kind is None
+    assert point.x == pytest.approx(103.0)
+    assert canvas.current_guides() == []
 
 
 # ------------------------------------------------- CAD input on a picked edge (spec S9)
@@ -738,6 +928,9 @@ def test_clicking_an_edge_selects_that_segment(qtbot) -> None:
 
 def test_typing_a_number_on_a_selected_edge_changes_its_length(qtbot) -> None:
     canvas = rectangle_canvas(qtbot)
+    canvas.add_dimension(
+        Anchor(ANCHOR_VERTEX, 0), Anchor(ANCHOR_VERTEX, 1), SEGMENT_LENGTH, offset_mm=10.0
+    )
     click_edge(canvas, 50.0, 0.0)
     qtbot.keyClick(canvas, Qt.Key.Key_1)
     assert canvas.has_dimension_editor()
@@ -758,6 +951,9 @@ def test_typing_a_number_on_a_slanted_edge_is_refused(qtbot) -> None:
     )
     canvas.set_editable(True)
     canvas.fit_to_content()
+    canvas.add_dimension(
+        Anchor(ANCHOR_VERTEX, 2), Anchor(ANCHOR_VERTEX, 3), SEGMENT_LENGTH, offset_mm=10.0
+    )
     refused: list[str] = []
     canvas.editRejected.connect(refused.append)
     canvas.select_segment("outer", 2)  # the slanted one

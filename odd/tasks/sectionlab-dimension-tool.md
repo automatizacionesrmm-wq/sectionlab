@@ -105,6 +105,6 @@ alignment guides touch neither the dimension model nor the canvas.
 | Slice | Commits | Contents |
 | --- | --- | --- |
 | 1 | `34c3267`, `91a1849`, `fa48fb5`, `4f84e60` | specs; alignment guides (T8); dimension model and solver (T1, T2); lock sync |
-| 2 | `SLICE2` | template parameter mapping and persistence (T3, T4) |
+| 2 | `567ea83` | template parameter mapping and persistence (T3, T4) |
 | 3 | — | canvas: drawn dimensions, selection, drag, tool mode, guides (T5, T6, T9) |
 | 4 | — | app wiring: commands, strings, automatic dimensions removed, docs (T7) |

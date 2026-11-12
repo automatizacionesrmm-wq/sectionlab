@@ -184,6 +184,8 @@ class MainWindow(QMainWindow):
         self._unit_label = QLabel(self)
         self._nav_label = QLabel(strings.label_for("hint_navigate"), self)
         self._message_label = QLabel(self)
+        self._snap_text = ""
+        self._guides_text = ""
         for label in (self._cursor_label, self._snap_label, self._unit_label, self._message_label):
             label.setObjectName("status")
             self.statusBar().addWidget(label)
@@ -207,6 +209,12 @@ class MainWindow(QMainWindow):
         self.canvas.segmentSelected.connect(self._on_segment_selected)
         self.canvas.drawingChanged.connect(self._on_drawing_changed)
         self.canvas.editRejected.connect(self._on_dimension_rejected)
+        self.canvas.dimensionPlaced.connect(self._on_dimension_placed)
+        self.canvas.dimensionToolChanged.connect(self._on_dimension_tool_changed)
+        self.canvas.dimensionStepChanged.connect(self._on_dimension_step)
+        self.canvas.guidesChanged.connect(self._on_guides_changed)
+        self.canvas.dimensionsDropped.connect(self._on_dimensions_dropped)
+        self.canvas.dimensionEdited.connect(self._on_dimension_edited)
         self.template_panel.applied.connect(self.apply_template)
         self.template_panel.freeModeRequested.connect(self.start_free_geometry)
         self.template_panel.convertRequested.connect(self.convert_to_free_geometry)
@@ -467,6 +475,19 @@ class MainWindow(QMainWindow):
         self.action_ortho.toggled.connect(self.canvas.set_ortho)
         self.canvas.set_ortho(False)
 
+        self.action_dimension_tool = QAction(strings.label_for("dimension_tool"), self)
+        self.action_dimension_tool.setCheckable(True)
+        self.action_dimension_tool.setShortcut(QKeySequence("D"))
+        self.action_dimension_tool.setStatusTip(strings.label_for("dimension_tool_tip"))
+        self.action_dimension_tool.toggled.connect(self.set_dimension_tool)
+
+        self.action_guides = QAction(strings.label_for("guides"), self)
+        self.action_guides.setCheckable(True)
+        self.action_guides.setChecked(True)
+        self.action_guides.setShortcut(QKeySequence("Ctrl+L"))
+        self.action_guides.setStatusTip(strings.label_for("guides_tip"))
+        self.action_guides.toggled.connect(self.set_guides_visible)
+
         self.action_dimensions = QAction(strings.label_for("dimensions"), self)
         self.action_dimensions.setCheckable(True)
         self.action_dimensions.setChecked(True)
@@ -524,6 +545,8 @@ class MainWindow(QMainWindow):
             view_menu.addAction(action)
         view_menu.addSeparator()
         view_menu.addAction(self.action_ortho)
+        view_menu.addAction(self.action_dimension_tool)
+        view_menu.addAction(self.action_guides)
         view_menu.addAction(self.action_dimensions)
         view_menu.addAction(self.action_theme)
 
@@ -557,6 +580,8 @@ class MainWindow(QMainWindow):
             (self.action_insert_vertex, "insert"),
             (self.action_delete_vertex, "delete"),
             (self.action_ortho, "ortho"),
+            (self.action_dimension_tool, "measure"),
+            (self.action_guides, "snap"),
             (self.action_zoom_in, "zoom_in"),
             (self.action_zoom_out, "zoom_out"),
             (self.action_fit, "fit"),
@@ -569,7 +594,15 @@ class MainWindow(QMainWindow):
         toolbar.setIconSize(QSize(20, 20))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         toolbar.setMovable(False)
-        groups = (pairs[0:1], pairs[1:4], pairs[4:6], pairs[6:9], pairs[9:12], pairs[12:14])
+        groups = (
+            pairs[0:1],
+            pairs[1:4],
+            pairs[4:6],
+            pairs[6:9],
+            pairs[9:11],
+            pairs[11:14],
+            pairs[14:16],
+        )
         for index, group in enumerate(groups):
             if index:
                 toolbar.addSeparator()
@@ -762,7 +795,7 @@ class MainWindow(QMainWindow):
         self._refresh_displays()
 
     def set_dimensions_visible(self, visible: bool) -> None:
-        """Show or hide the per-segment dimensions (spec S2)."""
+        """Show or hide the dimensions the user placed (spec S1)."""
         self.canvas.set_dimensions_visible(visible)
         if self.action_dimensions.isChecked() != visible:
             self.action_dimensions.setChecked(visible)
@@ -772,24 +805,77 @@ class MainWindow(QMainWindow):
     def dimensions_visible(self) -> bool:
         return self.canvas.dimensions_visible()
 
+    def set_dimension_tool(self, active: bool) -> None:
+        """Arm or leave the dimension tool, keeping the action and the canvas in step."""
+        if active and not self.canvas.begin_dimension_tool():
+            self._set_message(strings.label_for("dimension_needs_section"))
+            active = False
+        elif not active:
+            self.canvas.cancel_dimension_tool()
+        if self.action_dimension_tool.isChecked() != active:
+            self.action_dimension_tool.setChecked(active)
+
+    def dimension_tool_active(self) -> bool:
+        return self.canvas.is_placing_dimension()
+
+    def set_guides_visible(self, visible: bool) -> None:
+        """Show or hide the alignment guides (spec S12)."""
+        self.canvas.set_guides_visible(visible)
+        if self.action_guides.isChecked() != visible:
+            self.action_guides.setChecked(visible)
+
+    def guides_visible(self) -> bool:
+        return self.canvas.guides_visible()
+
+    def _on_dimension_tool_changed(self, active: bool) -> None:
+        if self.action_dimension_tool.isChecked() != active:
+            self.action_dimension_tool.setChecked(active)
+        self._set_message(
+            strings.label_for("dimension_tool_first" if active else "ready")
+        )
+
+    def _on_dimension_step(self, picked: int) -> None:
+        if not self.canvas.is_placing_dimension():
+            return
+        if picked <= 0:
+            key = "dimension_tool_first"
+        elif picked == 1:
+            key = "dimension_tool_second"
+        else:
+            key = "dimension_tool_place"
+        self._set_message(strings.label_for(key))
+
+    def _on_dimension_placed(self, identifier: int) -> None:
+        self._set_message(strings.label_for("dimension_placed"))
+
+    def _on_dimensions_dropped(self, count: int) -> None:
+        self._set_message(f"{count} {strings.label_for('dimensions_dropped')}")
+
+    def _on_dimension_edited(self, identifier: int, value: float) -> None:
+        """A dimension that drives a template moves its parameter in the form (spec S6)."""
+        template = self.canvas.section().template
+        if template is not None and self._template_mode:
+            self.template_panel.set_params(template.params)
+
     # ------------------------------------------------------------------ files
 
     def save_document(self, path: str | Path) -> None:
         target = Path(path)
-        save(target, self.canvas.section(), self._unit)
+        save(target, self.canvas.section(), self._unit, self.canvas.dimensions())
         self._path = target
         self._set_message(f"{strings.label_for('saved')}: {target.name}")
 
     def open_document(self, path: str | Path) -> bool:
         source = Path(path)
         try:
-            section, unit, _dimensions = load(source)
+            section, unit, dimensions = load(source)
         except DocumentError as error:
             self._report_error(strings.error_message(error.code))
             return False
 
         self._unit = unit
         self.canvas.set_section(section)
+        self.canvas.set_dimensions(dimensions)
         self.canvas.set_editable(section.template is None)
         self._template_mode = section.template is not None or not section.outer.points
         self._sync_template_dock()
@@ -885,10 +971,16 @@ class MainWindow(QMainWindow):
         )
 
     def _on_snap_changed(self, kind: str) -> None:
-        label = ""
-        if kind:
-            label = strings.label_for(f"snap_{kind.lower()}")
-        self._snap_label.setText(label)
+        self._snap_text = strings.label_for(f"snap_{kind.lower()}") if kind else ""
+        self._refresh_snap_label()
+
+    def _on_guides_changed(self, label: str) -> None:
+        self._guides_text = label
+        self._refresh_snap_label()
+
+    def _refresh_snap_label(self) -> None:
+        """A snap wins the space; a guide fills it when nothing is snapped (spec S12)."""
+        self._snap_label.setText(self._snap_text or self._guides_text)
 
     def _on_segment_selected(self, contour: str, index: int) -> None:
         """A picked edge takes typed input, so the status bar says so."""

@@ -7,7 +7,7 @@ keeps undo/redo exact for small sections (spec S8, S14).
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from math import cos, hypot, radians, sin
 from typing import Mapping
 
@@ -33,14 +33,42 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
+from sectionlab.core.dimensions import (
+    ANCHOR_EDGE,
+    ANCHOR_VERTEX,
+    HORIZONTAL,
+    SEGMENT_LENGTH,
+    VERTICAL,
+    Anchor,
+    Dimension,
+    DimensionError,
+    is_editable,
+    measure,
+    normal,
+    remap,
+)
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_value
-from sectionlab.core.sketch import SketchError, set_segment_length
-from sectionlab.core.snap import SnapKind, apply_ortho, candidates, find_snap
+from sectionlab.core.sketch import SketchError, set_measure
+from sectionlab.core.snap import (
+    GUIDE_X,
+    SnapKind,
+    alignments,
+    apply_alignment,
+    apply_ortho,
+    candidates,
+    find_snap,
+)
+from sectionlab.core.templates import (
+    TemplateKind,
+    TemplateParameterError,
+    build_section,
+    parameter_for,
+    parameter_override,
+)
 from sectionlab.core.units import Unit, from_mm, to_mm
 from sectionlab.ui import strings
 from sectionlab.ui import theme as ui_theme
-from sectionlab.ui.dimensions import Dimension, dimensions_for
 
 OUTER = "outer"
 INNER = "inner"
@@ -152,20 +180,28 @@ class _ContourItem(QGraphicsPathItem):
         self.setZValue(1)
 
 
+@dataclass(frozen=True)
+class _Snapshot:
+    """Everything one undo step restores: the geometry and the dimensions placed on it."""
+
+    section: Section
+    dimensions: tuple[Dimension, ...]
+
+
 class _EditCommand(QUndoCommand):
     """Snapshot command: applying a whole section is exact and cheap at this scale."""
 
-    def __init__(self, canvas: "CanvasView", before: Section, after: Section, text: str) -> None:
+    def __init__(self, canvas: "CanvasView", before: _Snapshot, after: _Snapshot, text: str) -> None:
         super().__init__(text)
         self._canvas = canvas
         self._before = before
         self._after = after
 
     def redo(self) -> None:  # noqa: D102 - Qt override
-        self._canvas._apply_section(self._after)
+        self._canvas._apply_snapshot(self._after)
 
     def undo(self) -> None:  # noqa: D102 - Qt override
-        self._canvas._apply_section(self._before)
+        self._canvas._apply_snapshot(self._before)
 
 
 class CanvasView(QGraphicsView):
@@ -181,6 +217,15 @@ class CanvasView(QGraphicsView):
     # A refused dimension edit, carrying the English code the status bar translates (D6).
     editRejected = Signal(str)
     dimensionEdited = Signal(int, float)
+    dimensionPlaced = Signal(int)
+    dimensionSelected = Signal(int)
+    dimensionToolChanged = Signal(bool)
+    # How many references the tool holds: 0 first, 1 second, 2 place (spec S2).
+    dimensionStepChanged = Signal(int)
+    # How many dimensions an edit of the geometry had to drop, because their vertex is gone.
+    dimensionsDropped = Signal(int)
+    # The references the cursor is aligned with, ready for the status bar (spec S12).
+    guidesChanged = Signal(str)
 
     def __init__(self, parent: QGraphicsView | None = None) -> None:
         super().__init__(parent)
@@ -226,6 +271,14 @@ class CanvasView(QGraphicsView):
         self._centroid: tuple[float, float, float] | None = None
         self._value_highlight: tuple[float, str] | None = None
         self._dimension_editor: QLineEdit | None = None
+        self._dimensions: list[Dimension] = []
+        self._next_dimension_id = 1
+        self._selected_dimension: int | None = None
+        self._dimension_drag: tuple[Dimension, _Snapshot] | None = None
+        self._tool_active = False
+        self._tool_anchors: list[Anchor] = []
+        self._guides_visible = True
+        self._guides: list = []
         self._pan_origin: QPoint | None = None
         self._rebuild()
 
@@ -263,7 +316,7 @@ class CanvasView(QGraphicsView):
         return self._unit
 
     def set_dimensions_visible(self, visible: bool) -> None:
-        """Show or hide the per-segment dimensions (spec S2)."""
+        """Show or hide the dimensions the user placed (spec S1)."""
         self._dims_visible = visible
         self.viewport().update()
 
@@ -271,11 +324,141 @@ class CanvasView(QGraphicsView):
         return self._dims_visible
 
     def dimensions(self) -> list[Dimension]:
-        """One dimension per segment of the outline, in millimetres."""
-        outer = self._section.outer
-        if outer is None or len(outer.points) < 2:
-            return []
-        return dimensions_for(outer.points)
+        """The dimensions the user placed, in millimetres; nothing is derived (spec S1)."""
+        return list(self._dimensions)
+
+    def set_dimensions(self, dimensions, *, record: bool = False, text: str = "dimension") -> None:
+        """Replace the placed dimensions, optionally as one undoable edit."""
+        placed = tuple(dimensions)
+        if record:
+            self._commit_snapshot(self._snapshot(dimensions=placed), text)
+            return
+        self._dimensions = [item for item in placed if self._fits(item, len(self._section.outer.points))]
+        self._next_dimension_id = max((item.id for item in self._dimensions), default=0) + 1
+        self.viewport().update()
+
+    def dimension(self, identifier: int) -> Dimension | None:
+        return next((item for item in self._dimensions if item.id == identifier), None)
+
+    def add_dimension(
+        self,
+        first: Anchor,
+        second: Anchor,
+        kind: str,
+        *,
+        offset_mm: float | None = None,
+        record: bool = True,
+    ) -> Dimension | None:
+        """Place one dimension; ``record`` pushes it as its own undo step."""
+        if len(self._section.outer.points) < 3:
+            return None
+        if not record and not self._editable:
+            return None
+        placed = Dimension(
+            id=self._next_dimension_id,
+            first=first,
+            second=second,
+            kind=kind,
+            offset_mm=self._default_offset_mm() if offset_mm is None else float(offset_mm),
+        )
+        self._next_dimension_id += 1
+        if record:
+            self._commit_snapshot(
+                self._snapshot(dimensions=tuple([*self._dimensions, placed])),
+                strings.label_for("undo_dimension_add"),
+            )
+        else:
+            self._dimensions.append(placed)
+            self.viewport().update()
+        self.dimensionPlaced.emit(placed.id)
+        return placed
+
+    def delete_dimension(self, identifier: int) -> bool:
+        """Remove one dimension as a single undoable edit (spec S9)."""
+        if not any(item.id == identifier for item in self._dimensions):
+            return False
+        remaining = tuple(item for item in self._dimensions if item.id != identifier)
+        self._commit_snapshot(self._snapshot(dimensions=remaining), strings.label_for("undo_dimension_delete"))
+        self._selected_dimension = None
+        return True
+
+    def select_dimension(self, identifier: int) -> None:
+        """Highlight one dimension, and tell the window so it can offer its actions."""
+        self._selected = None
+        self._segment = None
+        self._selected_dimension = identifier
+        self.viewport().update()
+        self.dimensionSelected.emit(identifier)
+
+    def selected_dimension(self) -> int | None:
+        return self._selected_dimension
+
+    def clear_selection(self) -> None:
+        had_vertex = self._selected is not None
+        had_dimension = self._selected_dimension is not None
+        self._selected = None
+        self._segment = None
+        self._selected_dimension = None
+        if had_vertex or had_dimension:
+            self._paint_selection()
+            self.viewport().update()
+        if had_vertex:
+            self.vertexSelected.emit("", -1)
+
+    def can_drive(self, dimension: Dimension) -> bool:
+        """Whether typing a value for this dimension can move anything (specs S5-S7)."""
+        template = self._section.template
+        if template is not None:
+            try:
+                kind = TemplateKind(template.kind)
+            except ValueError:
+                return False
+            return parameter_for(kind, template.params, dimension) is not None
+        return is_editable(self._ring(), dimension)[0]
+
+    def drive_dimension(self, identifier: int, target_mm: float) -> bool:
+        """Make one dimension measure ``target_mm`` as a single undoable edit (specs S5-S6)."""
+        dimension = self.dimension(identifier)
+        if dimension is None:
+            return False
+        if self._section.template is not None:
+            return self._drive_template(dimension, target_mm)
+        if not self._editable:
+            self.editRejected.emit("read_only")
+            return False
+        try:
+            moved = set_measure(self._ring(), dimension, target_mm)
+        except SketchError as error:
+            self.editRejected.emit(error.code)
+            return False
+        self._commit(
+            replace(self._section, outer=replace(self._section.outer, points=moved)),
+            strings.label_for("undo_dimension"),
+        )
+        self.dimensionEdited.emit(identifier, target_mm)
+        return True
+
+    def _drive_template(self, dimension: Dimension, target_mm: float) -> bool:
+        """A dimension on a template moves the parameter behind it (spec S6)."""
+        template = self._section.template
+        assert template is not None
+        try:
+            kind = TemplateKind(template.kind)
+        except ValueError:
+            self.editRejected.emit("not_drivable")
+            return False
+        override = parameter_override(kind, template.params, dimension, target_mm)
+        if override is None:
+            self.editRejected.emit("not_drivable")
+            return False
+        try:
+            rebuilt = build_section(kind, {**template.params, **override})
+        except TemplateParameterError as error:
+            self.editRejected.emit(error.code)
+            return False
+        self._commit(rebuilt, strings.label_for("undo_dimension"))
+        self.dimensionEdited.emit(dimension.id, target_mm)
+        return True
 
     def set_centroid(self, cx: float | None, cy: float | None = None, *, angle_deg: float = 0.0) -> None:
         """Mark the centroid and its principal axes (spec S4)."""
@@ -344,7 +527,8 @@ class CanvasView(QGraphicsView):
         position = len(points) if index is None else index
         position = max(0, min(position, len(points)))
         points.insert(position, Point(float(x), float(y)))
-        self._replace_contour(contour, replace(target, points=points), "add vertex")
+        dimensions = self._remapped(inserted=position) if contour == OUTER else None
+        self._replace_contour(contour, replace(target, points=points), "add vertex", dimensions)
 
     def move_vertex(self, contour: str, index: int, x: float, y: float) -> None:
         """Move an existing vertex to the given millimetre position."""
@@ -358,7 +542,8 @@ class CanvasView(QGraphicsView):
         target = self._contour(contour)
         points = list(target.points)
         del points[index]
-        self._replace_contour(contour, replace(target, points=points), "delete vertex")
+        dimensions = self._remapped(deleted=index) if contour == OUTER else None
+        self._replace_contour(contour, replace(target, points=points), "delete vertex", dimensions)
 
     def close_contour(self) -> None:
         """Finish the polyline being drawn: the last vertex joins the first one."""
@@ -452,7 +637,11 @@ class CanvasView(QGraphicsView):
         return max(self.transform().m11(), 1e-9)
 
     def snapped_point(self, scene_pos: QPointF) -> tuple[Point, SnapKind | None]:
-        """Model point under the cursor after snapping and the ortho constraint."""
+        """Model point under the cursor after the ortho constraint, a snap, or a guide.
+
+        A snap wins over a guide because it is an exact existing point; a guide wins over the
+        raw cursor because sharing a coordinate is what the user is aiming at (spec S12).
+        """
         model = Point(scene_pos.x(), -scene_pos.y())
         anchor = self._last_vertex()
         if self._ortho and anchor is not None:
@@ -460,10 +649,20 @@ class CanvasView(QGraphicsView):
 
         tolerance = SNAP_TOLERANCE_PX / self.pixels_per_mm()
         contours = [c for c in (self._section.outer, self._section.inner) if c and c.points]
-        found = find_snap(model, candidates(contours), tolerance)
-        if found is None:
-            return model, None
-        return found.point, found.kind
+        found_candidates = candidates(contours)
+        found = find_snap(model, found_candidates, tolerance)
+        if found is not None:
+            self._guides = []
+            return found.point, found.kind
+
+        self._guides = (
+            alignments(found_candidates, model, tolerance)
+            if self._guides_visible and not (self._ortho and anchor is not None)
+            else []
+        )
+        if self._guides:
+            return apply_alignment(model, self._guides), None
+        return model, None
 
     def fit_to_content(self) -> None:
         """Zoom so the whole section is visible with a margin."""
@@ -510,21 +709,72 @@ class CanvasView(QGraphicsView):
             return None
         return points[-1]
 
-    def _replace_contour(self, name: str, contour: Contour, text: str) -> None:
+    def _replace_contour(
+        self,
+        name: str,
+        contour: Contour,
+        text: str,
+        dimensions: tuple[Dimension, ...] | None = None,
+    ) -> None:
         if name == INNER:
             updated = replace(self._section, inner=contour)
         else:
             updated = replace(self._section, outer=contour)
-        self._commit(updated, text)
+        self._commit_snapshot(self._snapshot(section=updated, dimensions=dimensions), text)
+
+    def _snapshot(
+        self,
+        *,
+        section: Section | None = None,
+        dimensions: tuple[Dimension, ...] | None = None,
+    ) -> _Snapshot:
+        return _Snapshot(
+            section=self._section if section is None else section,
+            dimensions=tuple(self._dimensions) if dimensions is None else tuple(dimensions),
+        )
 
     def _commit(self, section: Section, text: str) -> None:
-        self._undo.push(_EditCommand(self, self._section, section, text))
+        """Commit a geometry change that leaves the dimensions where they are."""
+        self._commit_snapshot(self._snapshot(section=section), text)
 
-    def _apply_section(self, section: Section) -> None:
-        self._section = section
-        self._drawing = not section.outer.closed and bool(section.outer.points)
+    def _commit_snapshot(self, after: _Snapshot, text: str) -> None:
+        before = self._snapshot()
+        if after == before:
+            return
+        self._undo.push(_EditCommand(self, before, after, text))
+
+    def _apply_snapshot(self, snapshot: _Snapshot) -> None:
+        self._section = snapshot.section
+        count = len(snapshot.section.outer.points)
+        kept = [item for item in snapshot.dimensions if self._fits(item, count)]
+        dropped = max(0, len(self._dimensions) - len(kept)) if len(kept) < len(self._dimensions) else 0
+        self._dimensions = kept
+        self._drawing = not snapshot.section.outer.closed and bool(count)
+        if self._selected_dimension is not None and not any(
+            item.id == self._selected_dimension for item in self._dimensions
+        ):
+            self._selected_dimension = None
         self._rebuild()
         self.sectionChanged.emit()
+        if dropped:
+            self.dimensionsDropped.emit(dropped)
+
+    def _apply_section(self, section: Section) -> None:
+        self._apply_snapshot(self._snapshot(section=section))
+
+    @staticmethod
+    def _fits(dimension: Dimension, count: int) -> bool:
+        """A dimension whose anchor indices exist still belongs to this contour."""
+        return all(0 <= anchor.index < count for anchor in dimension.anchors)
+
+    def _remapped(self, **change: int) -> tuple[Dimension, ...]:
+        """Dimensions re-indexed after a vertex was inserted or deleted (spec S10)."""
+        moved = [remap(item, **change) for item in self._dimensions]
+        return tuple(item for item in moved if item is not None)
+
+    def _ring(self) -> list[Point]:
+        outer = self._section.outer
+        return list(outer.points) if outer is not None else []
 
     def _rebuild(self) -> None:
         self._scene.clear()
@@ -658,95 +908,261 @@ class CanvasView(QGraphicsView):
 
     # ------------------------------------------------------------------ painting
 
-    def _device_normal(self, dimension: Dimension) -> QPointF:
-        """The dimension's outward normal in device pixels, y axis included."""
-        origin = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
-        tip = self.mapFromScene(
-            QPointF(dimension.start.x + dimension.normal.x, -dimension.start.y - dimension.normal.y)
-        )
+    def _device_point(self, point: Point) -> QPointF:
+        return self.mapFromScene(QPointF(point.x, -point.y))
+
+    def _device_direction(self, direction: Point) -> QPointF:
+        """A model direction in device pixels, y axis included."""
+        origin = self.mapFromScene(QPointF(0.0, 0.0))
+        tip = self.mapFromScene(QPointF(direction.x, -direction.y))
         dx = tip.x() - origin.x()
         dy = tip.y() - origin.y()
         length = hypot(dx, dy) or 1.0
         return QPointF(dx / length, dy / length)
 
+    def dimension_frame(
+        self, dimension: Dimension
+    ) -> tuple[QPointF, QPointF, QPointF, QPointF, QPointF] | None:
+        """Device geometry of one dimension: line ends, outward normal and both anchors.
+
+        The line sits ``offset_mm`` away from the measured entity, so the distance the user
+        chose survives zooming instead of being a fixed number of pixels (spec S8).
+        """
+        points = self._ring()
+        if not points or not self._fits(dimension, len(points)):
+            return None
+        try:
+            start = self._device_point(dimension.first.point(points))
+            end = self._device_point(dimension.second.point(points))
+            outward = normal(points, dimension)
+        except DimensionError:
+            return None
+        direction = self._device_direction(outward)
+        shift = dimension.offset_mm * self.pixels_per_mm()
+        first = QPointF(start.x() + direction.x() * shift, start.y() + direction.y() * shift)
+        second = QPointF(end.x() + direction.x() * shift, end.y() + direction.y() * shift)
+        return first, second, direction, start, end
+
+    def _dimension_value(self, dimension: Dimension) -> float | None:
+        points = self._ring()
+        if not points or not self._fits(dimension, len(points)):
+            return None
+        try:
+            return measure(points, dimension)
+        except DimensionError:
+            return None
+
     def _dimension_text(self, dimension: Dimension) -> str:
-        value = format_value(from_mm(dimension.value, self._unit), self._decimals)
-        if self._is_highlighted(dimension):
+        value = self._dimension_value(dimension)
+        if value is None:
+            return ""
+        label = format_value(from_mm(value, self._unit), self._decimals)
+        if self._is_highlighted(value):
             _, name = self._value_highlight or (0.0, "")
-            return f"{name} = {value}" if name else value
-        return value
+            return f"{name} = {label}" if name else label
+        return label
 
-    def _is_highlighted(self, dimension: Dimension) -> bool:
-        if self._value_highlight is None:
+    def _is_highlighted(self, value: float | None) -> bool:
+        if self._value_highlight is None or value is None:
             return False
-        return abs(dimension.value - self._value_highlight[0]) <= 1e-6
-
-    def _dimension_geometry(self, dimension: Dimension) -> tuple[QPointF, QPointF, QPointF]:
-        """The two ends of the dimension line and the outward normal in device pixels."""
-        normal = self._device_normal(dimension)
-        start = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
-        end = self.mapFromScene(QPointF(dimension.end.x, -dimension.end.y))
-        first = QPointF(start.x() + normal.x() * DIM_OFFSET_PX, start.y() + normal.y() * DIM_OFFSET_PX)
-        second = QPointF(end.x() + normal.x() * DIM_OFFSET_PX, end.y() + normal.y() * DIM_OFFSET_PX)
-        return first, second, normal
+        return abs(value - self._value_highlight[0]) <= 1e-6
 
     def _dimension_box(self, dimension: Dimension, metrics=None) -> QRectF:
-        """Device rectangle the dimension text occupies; also the target of a double click."""
+        """Device rectangle the dimension text occupies; also the target of a click."""
         if metrics is None:
             metrics = QFontMetricsF(self.font())
         label = self._dimension_text(dimension)
         width = metrics.horizontalAdvance(label)
         height = metrics.height()
-        first, second, normal = self._dimension_geometry(dimension)
+        frame = self.dimension_frame(dimension)
+        if frame is None:
+            return QRectF()
+        first, second, direction, _, _ = frame
         middle = QPointF((first.x() + second.x()) / 2, (first.y() + second.y()) / 2)
         centre = QPointF(
-            middle.x() + normal.x() * (DIM_GAP_PX + 2.0),
-            middle.y() + normal.y() * (DIM_GAP_PX + 2.0),
+            middle.x() + direction.x() * (DIM_GAP_PX + 2.0),
+            middle.y() + direction.y() * (DIM_GAP_PX + 2.0),
         )
         return QRectF(centre.x() - width / 2 - 3, centre.y() - height / 2 - 1, width + 6, height + 2)
 
     def dimension_at(self, position: QPoint) -> Dimension | None:
-        """The editable dimension whose text sits under the cursor, if any (spec S3)."""
-        if not self._dims_visible or not self._editable:
+        """The dimension whose text sits under the cursor, if any (specs S5, S9)."""
+        if not self._dims_visible:
             return None
         point = QPointF(position)
-        for dimension in self.dimensions():
-            if not dimension.editable:
-                continue
-            if self._dimension_box(dimension).adjusted(-6, -6, 6, 6).contains(point):
+        for dimension in self._dimensions:
+            box = self._dimension_box(dimension)
+            if not box.isNull() and box.adjusted(-6, -6, 6, 6).contains(point):
                 return dimension
         return None
 
-    def apply_dimension_length(self, index: int, length_mm: float) -> bool:
-        """Make one segment measure ``length_mm`` as a single undoable edit (spec S3)."""
-        outer = self._section.outer
-        if outer is None:
+    # ------------------------------------------------------------------ dimension tool
+
+    def _default_offset_mm(self) -> float:
+        """Put a new dimension line where the derived ones used to sit, 26 px out."""
+        return DIM_OFFSET_PX / self.pixels_per_mm()
+
+    def begin_dimension_tool(self) -> bool:
+        """Arm the dimension tool: pick a reference, pick another, then place the line."""
+        if len(self._ring()) < 3:
             return False
-        if not self._editable:
-            self.editRejected.emit("read_only")
-            return False
-        try:
-            points = set_segment_length(outer.points, index, length_mm)
-        except SketchError as error:
-            self.editRejected.emit(error.code)
-            return False
-        self._commit(
-            replace(self._section, outer=replace(outer, points=points)),
-            strings.label_for("undo_dimension"),
-        )
-        self.dimensionEdited.emit(index, length_mm)
+        if self._tool_active:
+            return True
+        self._tool_active = True
+        self._tool_anchors = []
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        self.dimensionToolChanged.emit(True)
+        self.dimensionStepChanged.emit(0)
+        self.viewport().update()
         return True
 
+    def cancel_dimension_tool(self) -> None:
+        """Leave the tool and forget whatever was half-picked."""
+        if not self._tool_active:
+            return
+        self._tool_active = False
+        self._tool_anchors = []
+        self.viewport().unsetCursor()
+        self.dimensionToolChanged.emit(False)
+        self.dimensionStepChanged.emit(0)
+        self.viewport().update()
+
+    def is_placing_dimension(self) -> bool:
+        return self._tool_active
+
+    def pending_anchors(self) -> tuple[Anchor, ...]:
+        return tuple(self._tool_anchors)
+
+    def _tool_click(self, scene_pos: QPointF) -> bool:
+        """One click of the dimension tool; returns whether it consumed the click."""
+        if len(self._tool_anchors) >= 2:
+            pending = self.pending_dimension()
+            if pending is None:
+                self._tool_anchors = []
+                return False
+            self.add_dimension(
+                pending.first, pending.second, pending.kind, offset_mm=pending.offset_mm
+            )
+            self._tool_anchors = []
+            self.viewport().update()
+            return True
+        anchors = self._anchor_at(scene_pos)
+        if not anchors:
+            return False
+        for anchor in anchors:
+            if len(self._tool_anchors) < 2:
+                self._tool_anchors.append(anchor)
+        self.dimensionStepChanged.emit(len(self._tool_anchors))
+        self.viewport().update()
+        return True
+
+    def _anchor_at(self, scene_pos: QPointF) -> tuple[Anchor, ...]:
+        """The references one click selects: a vertex, a whole edge, or a point on an edge."""
+        node = self._node_at(scene_pos)
+        if node is not None:
+            return (Anchor(ANCHOR_VERTEX, node.index),)
+        segment = self.segment_at(scene_pos)
+        if segment is None or segment[0] != OUTER:
+            return ()
+        points = self._ring()
+        index = segment[1]
+        if not self._tool_anchors:
+            return (
+                Anchor(ANCHOR_VERTEX, index),
+                Anchor(ANCHOR_VERTEX, (index + 1) % len(points)),
+            )
+        model = Point(scene_pos.x(), -scene_pos.y())
+        return (Anchor(ANCHOR_EDGE, index, self._edge_parameter(index, model)),)
+
+    def _edge_parameter(self, index: int, point: Point) -> float:
+        """Where a click falls along an edge, snapped to an end or the middle when close."""
+        points = self._ring()
+        start = points[index]
+        end = points[(index + 1) % len(points)]
+        dx, dy = end.x - start.x, end.y - start.y
+        span = dx * dx + dy * dy
+        if span <= 1e-12:
+            return 0.5
+        t = max(0.0, min(1.0, ((point.x - start.x) * dx + (point.y - start.y) * dy) / span))
+        for fixed in (0.0, 0.5, 1.0):
+            if abs(t - fixed) <= 0.08:
+                return fixed
+        return round(t, 4)
+
+    def _kind_for(self, first: Anchor, second: Anchor) -> str | None:
+        """Which measure these two references describe, the way CAD reads the cursor."""
+        points = self._ring()
+        try:
+            start = first.point(points)
+            end = second.point(points)
+        except DimensionError:
+            return None
+        count = len(points)
+        if (
+            first.kind == ANCHOR_VERTEX
+            and second.kind == ANCHOR_VERTEX
+            and second.index == (first.index + 1) % count
+        ):
+            return SEGMENT_LENGTH
+        dx = abs(end.x - start.x)
+        dy = abs(end.y - start.y)
+        if dy <= 1e-6 and dx > 1e-6:
+            return HORIZONTAL
+        if dx <= 1e-6 and dy > 1e-6:
+            return VERTICAL
+        if self._cursor_scene is None:
+            return HORIZONTAL
+        cursor = Point(self._cursor_scene.x(), -self._cursor_scene.y())
+        middle = Point((start.x + end.x) / 2, (start.y + end.y) / 2)
+        return HORIZONTAL if abs(cursor.x - middle.x) >= abs(cursor.y - middle.y) else VERTICAL
+
+    def _offset_from_cursor(self, points: list[Point], dimension: Dimension) -> float:
+        """Signed distance from the measured entity to the cursor, along the normal."""
+        if self._cursor_scene is None:
+            return dimension.offset_mm
+        try:
+            outward = normal(points, dimension)
+            start = dimension.first.point(points)
+            end = dimension.second.point(points)
+        except DimensionError:
+            return dimension.offset_mm
+        middle = Point((start.x + end.x) / 2, (start.y + end.y) / 2)
+        cursor = Point(self._cursor_scene.x(), -self._cursor_scene.y())
+        return (cursor.x - middle.x) * outward.x + (cursor.y - middle.y) * outward.y
+
+    def pending_dimension(self) -> Dimension | None:
+        """The dimension the tool would place right now, with the cursor as its offset."""
+        if len(self._tool_anchors) < 2:
+            return None
+        kind = self._kind_for(self._tool_anchors[0], self._tool_anchors[1])
+        if kind is None:
+            return None
+        points = self._ring()
+        candidate = Dimension(
+            id=0,
+            first=self._tool_anchors[0],
+            second=self._tool_anchors[1],
+            kind=kind,
+            offset_mm=0.0,
+        )
+        return replace(candidate, offset_mm=self._offset_from_cursor(points, candidate))
+
+    # ------------------------------------------------------------------ dimensions
+
     def begin_dimension_edit(self, dimension: Dimension) -> bool:
-        """Open a one-line editor over the dimension text, prefilled in the active unit."""
-        if not dimension.editable or not self._editable:
+        """Open a one-line editor over the text, prefilled in the active unit."""
+        value = self._dimension_value(dimension)
+        if value is None or not self.can_drive(dimension):
             return False
         self.close_dimension_editor()
         editor = _DimensionEditor(self.viewport())
         editor.setObjectName("dimension_editor")
         editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        editor.setText(format_value(from_mm(dimension.value, self._unit), self._decimals))
-        editor.setGeometry(self._dimension_box(dimension).toRect().adjusted(-10, -4, 10, 4))
+        editor.setText(format_value(from_mm(value, self._unit), self._decimals))
+        box = self._dimension_box(dimension)
+        if box.isNull():
+            return False
+        editor.setGeometry(box.toRect().adjusted(-10, -4, 10, 4))
         editor.returnPressed.connect(lambda: self._commit_dimension_edit(dimension, editor))
         editor.cancelled.connect(self.close_dimension_editor)
         editor.show()
@@ -773,10 +1189,80 @@ class CanvasView(QGraphicsView):
         except ValueError:
             self.editRejected.emit("not_a_number")
             return
-        self.apply_dimension_length(dimension.index, value)
+        self.drive_dimension(dimension.id, value)
+
+    def _measures_segment(self, dimension: Dimension, index: int, count: int) -> bool:
+        """True when this dimension is the length of ring segment ``index``."""
+        first, second = dimension.anchors
+        if first.kind == ANCHOR_EDGE and second.kind == ANCHOR_EDGE:
+            if first.index == index and second.index == index:
+                return abs(first.t) <= 1e-9 and abs(second.t - 1.0) <= 1e-9
+            return False
+        if first.kind == ANCHOR_VERTEX and second.kind == ANCHOR_VERTEX:
+            return first.index == index and second.index == (index + 1) % count
+        return False
+
+    # ------------------------------------------------------------------ guides
+
+    def set_guides_visible(self, visible: bool) -> None:
+        """Show or hide the alignment guides (spec S12)."""
+        self._guides_visible = visible
+        if not visible:
+            self._guides = []
+            self.guidesChanged.emit("")
+        self.viewport().update()
+
+    def guides_visible(self) -> bool:
+        return self._guides_visible
+
+    def current_guides(self) -> list:
+        return list(self._guides)
+
+    def guides_label(self) -> str:
+        """Name the references the cursor is aligned with, for the status bar."""
+        if not self._guides:
+            return ""
+        return " · ".join(
+            f"{'X' if guide.axis == GUIDE_X else 'Y'} con {self._reference_name(guide.source)}"
+            for guide in self._guides
+        )
+
+    def _reference_name(self, point: Point) -> str:
+        for contour in (self._section.outer, self._section.inner):
+            if contour is None or not contour.points:
+                continue
+            for index, vertex in enumerate(contour.points):
+                if abs(vertex.x - point.x) <= 1e-6 and abs(vertex.y - point.y) <= 1e-6:
+                    return f"v{index}"
+            count = len(contour.points)
+            for index in range(count):
+                start, end = contour.points[index], contour.points[(index + 1) % count]
+                if abs((start.x + end.x) / 2 - point.x) <= 1e-6 and abs(
+                    (start.y + end.y) / 2 - point.y
+                ) <= 1e-6:
+                    return "punto medio"
+        return "punto de referencia"
+
+    def _draw_guides(self, painter: QPainter) -> None:
+        """Dashed reference lines that show what the cursor is aligned with (spec S12)."""
+        if not self._guides_visible or not self._guides:
+            return
+        painter.setPen(QPen(QColor(_PALETTE["snap"]), 1.0, Qt.PenStyle.DotLine))
+        width = float(self.viewport().width())
+        height = float(self.viewport().height())
+        for guide in self._guides:
+            if guide.axis == GUIDE_X:
+                x = self._device_point(Point(guide.coordinate, 0.0)).x()
+                painter.drawLine(QPointF(x, 0.0), QPointF(x, height))
+            else:
+                y = self._device_point(Point(0.0, guide.coordinate)).y()
+                painter.drawLine(QPointF(0.0, y), QPointF(width, y))
+            source = self._device_point(guide.source)
+            painter.drawLine(QPointF(source.x() - 4, source.y()), QPointF(source.x() + 4, source.y()))
+            painter.drawLine(QPointF(source.x(), source.y() - 4), QPointF(source.x(), source.y() + 4))
 
     def _draw_dimensions(self, painter: QPainter) -> None:
-        """One dimension per segment, written outside the contour (spec S2)."""
+        """Every dimension the user placed, and none other (spec S1)."""
         if not self._dims_visible:
             return
         font = painter.font()
@@ -784,25 +1270,70 @@ class CanvasView(QGraphicsView):
         font.setBold(False)
         painter.setFont(font)
         metrics = painter.fontMetrics()
-        for dimension in self.dimensions():
-            first, second, normal = self._dimension_geometry(dimension)
-            highlighted = self._is_highlighted(dimension)
-            colour = QColor(_PALETTE["accent"] if highlighted else _PALETTE["dim_text"])
-            style = Qt.PenStyle.SolidLine if dimension.editable else Qt.PenStyle.DashLine
-            line = QColor(_PALETTE["accent"] if highlighted else _PALETTE["dim"])
-            painter.setPen(QPen(line, 1.0, style))
-            start = self.mapFromScene(QPointF(dimension.start.x, -dimension.start.y))
-            end = self.mapFromScene(QPointF(dimension.end.x, -dimension.end.y))
-            painter.drawLine(first, second)
-            for anchor, target in ((start, first), (end, second)):
-                painter.drawLine(
-                    QPointF(anchor.x() + normal.x() * DIM_GAP_PX, anchor.y() + normal.y() * DIM_GAP_PX),
-                    QPointF(target.x() + normal.x() * DIM_GAP_PX, target.y() + normal.y() * DIM_GAP_PX),
-                )
-            box = self._dimension_box(dimension, metrics)
-            painter.fillRect(box, QColor(_PALETTE["canvas"]))
-            painter.setPen(QPen(colour))
-            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self._dimension_text(dimension))
+        for dimension in self._dimensions:
+            self._draw_one_dimension(painter, dimension, metrics)
+
+    def _draw_one_dimension(self, painter: QPainter, dimension: Dimension, metrics) -> None:
+        frame = self.dimension_frame(dimension)
+        if frame is None:
+            return
+        first, second, direction, start, end = frame
+        value = self._dimension_value(dimension)
+        selected = dimension.id == self._selected_dimension
+        highlighted = self._is_highlighted(value)
+        accent = selected or highlighted
+        drivable = self.can_drive(dimension)
+        colour = QColor(_PALETTE["accent"] if accent else _PALETTE["dim_text"])
+        line = QColor(_PALETTE["accent"] if accent else _PALETTE["dim"])
+        style = Qt.PenStyle.SolidLine if drivable else Qt.PenStyle.DashLine
+        painter.setPen(QPen(line, 2.0 if selected else 1.0, style))
+        painter.drawLine(first, second)
+        for anchor, target in ((start, first), (end, second)):
+            painter.drawLine(
+                QPointF(
+                    anchor.x() + direction.x() * DIM_GAP_PX,
+                    anchor.y() + direction.y() * DIM_GAP_PX,
+                ),
+                QPointF(
+                    target.x() + direction.x() * DIM_GAP_PX,
+                    target.y() + direction.y() * DIM_GAP_PX,
+                ),
+            )
+        box = self._dimension_box(dimension, metrics)
+        if box.isNull():
+            return
+        painter.fillRect(box, QColor(_PALETTE["canvas"]))
+        painter.setPen(QPen(colour))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self._dimension_text(dimension))
+
+    def _draw_dimension_preview(self, painter: QPainter) -> None:
+        """The dimension the tool would place, following the cursor."""
+        pending = self.pending_dimension()
+        if pending is None:
+            return
+        points = self._ring()
+        try:
+            outward = normal(points, pending)
+            start = self._device_point(pending.first.point(points))
+            end = self._device_point(pending.second.point(points))
+        except DimensionError:
+            return
+        direction = self._device_direction(outward)
+        shift = pending.offset_mm * self.pixels_per_mm()
+        first = QPointF(start.x() + direction.x() * shift, start.y() + direction.y() * shift)
+        second = QPointF(end.x() + direction.x() * shift, end.y() + direction.y() * shift)
+        painter.setPen(QPen(QColor(_PALETTE["accent"]), 1.0, Qt.PenStyle.DashLine))
+        painter.drawLine(first, second)
+        for anchor, target in ((start, first), (end, second)):
+            painter.drawLine(anchor, target)
+        value = measure(points, pending)
+        label = format_value(from_mm(value, self._unit), self._decimals)
+        middle = QPointF((first.x() + second.x()) / 2, (first.y() + second.y()) / 2)
+        text = QPointF(
+            middle.x() + direction.x() * (DIM_GAP_PX + 12.0),
+            middle.y() + direction.y() * (DIM_GAP_PX + 12.0),
+        )
+        painter.drawText(text, label)
 
     def _draw_axes_labels(self, painter: QPainter, origin: QPoint, width: int, height: int) -> None:
         """Name the two reference axes, so the origin is unmistakable (spec S4)."""
@@ -952,6 +1483,8 @@ class CanvasView(QGraphicsView):
         self._draw_axes_labels(painter, origin, width, height)
         self._draw_centroid(painter)
         self._draw_dimensions(painter)
+        self._draw_dimension_preview(painter)
+        self._draw_guides(painter)
 
         if self._cursor_scene is not None:
             cursor = self.mapFromScene(self._cursor_scene)
@@ -971,6 +1504,17 @@ class CanvasView(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._pan_origin = event.position().toPoint()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.RightButton and self._tool_active:
+            self.cancel_dimension_tool()
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton and self._tool_active:
+            self.setFocus()
+            self._tool_click(self.mapToScene(event.position().toPoint()))
             event.accept()
             return
 
@@ -1011,6 +1555,12 @@ class CanvasView(QGraphicsView):
                 return
 
             if not self.is_drawing():
+                dimension = self.dimension_at(event.position().toPoint())
+                if dimension is not None:
+                    self.select_dimension(dimension.id)
+                    self._dimension_drag = (dimension, self._snapshot())
+                    event.accept()
+                    return
                 segment = self.segment_at(scene_pos)
                 if segment is not None:
                     self.select_segment(*segment)
@@ -1038,9 +1588,22 @@ class CanvasView(QGraphicsView):
         self._cursor_scene = scene_pos
         point, kind = self.snapped_point(scene_pos)
         self.snapChanged.emit(kind.value if kind is not None else "")
+        self.guidesChanged.emit(self.guides_label())
         self.cursorMoved.emit(point.x, point.y)
         self._snap_kind = kind if self._editable else None
         self.viewport().update()
+
+        if self._dimension_drag is not None:
+            dimension, before = self._dimension_drag
+            moved = replace(
+                dimension, offset_mm=self._offset_from_cursor(self._ring(), dimension)
+            )
+            self._dimensions = [
+                moved if item.id == dimension.id else item for item in self._dimensions
+            ]
+            self._dimension_drag = (moved, before)
+            event.accept()
+            return
 
         if self._drag is not None:
             contour, index, node, _ = self._drag
@@ -1060,6 +1623,16 @@ class CanvasView(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton and self._pan_origin is not None:
             self._pan_origin = None
             self.viewport().unsetCursor()
+            event.accept()
+            return
+
+        if self._dimension_drag is not None and event.button() == Qt.MouseButton.LeftButton:
+            _, before = self._dimension_drag
+            self._dimension_drag = None
+            after = self._snapshot()
+            if after != before:
+                self._apply_snapshot(before)
+                self._commit_snapshot(after, strings.label_for("undo_dimension"))
             event.accept()
             return
 
@@ -1084,7 +1657,11 @@ class CanvasView(QGraphicsView):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             dimension = self.dimension_at(event.position().toPoint())
-            if dimension is not None and self.begin_dimension_edit(dimension):
+            if dimension is not None:
+                self.select_dimension(dimension.id)
+                if not self.begin_dimension_edit(dimension):
+                    _, code = is_editable(self._ring(), dimension)
+                    self.editRejected.emit(code or "not_drivable")
                 event.accept()
                 return
         super().mouseDoubleClickEvent(event)
@@ -1095,8 +1672,16 @@ class CanvasView(QGraphicsView):
             self.close_contour()
             event.accept()
             return
+        if key == Qt.Key.Key_Escape and self._tool_active:
+            self.cancel_dimension_tool()
+            event.accept()
+            return
         if key == Qt.Key.Key_Escape and self.is_drawing():
             self.cancel_drawing()
+            event.accept()
+            return
+        if key == Qt.Key.Key_Delete and self._selected_dimension is not None:
+            self.delete_dimension(self._selected_dimension)
             event.accept()
             return
         if key == Qt.Key.Key_Delete and self._selected is not None:
@@ -1120,11 +1705,16 @@ class CanvasView(QGraphicsView):
         if contour != OUTER:
             self.editRejected.emit("segment_not_editable")
             return True
-        dimension = next((item for item in self.dimensions() if item.index == index), None)
+        count = len(self._ring())
+        dimension = next(
+            (item for item in self._dimensions if self._measures_segment(item, index, count)),
+            None,
+        )
         if dimension is None:
-            return False
-        if not dimension.editable:
-            # Slanted and closing segments cannot take a length without dragging the rest.
+            # No dimension was placed here, so there is nothing a number could move.
+            self.editRejected.emit("segment_not_dimensioned")
+            return True
+        if not self.can_drive(dimension):
             self.editRejected.emit("segment_not_editable")
             return True
         if not self.begin_dimension_edit(dimension):
