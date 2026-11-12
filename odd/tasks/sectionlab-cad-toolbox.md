@@ -56,7 +56,7 @@ vigente; esto lo complementa.
 | T16 | Selección múltiple, por ventana y `Supr` | S3 | ui, test-first | `7dba1f3` |
 | T17 | Cinta y menús de las herramientas de edición | S4 | ui, test-first | `7dba1f3` |
 | T18 | README y ayuda: qué hay y qué no (trim/extend) | S5 | docs | `7dba1f3` |
-| T19 | Marcador de enganche verde y visible, también en plantillas | S6 | ui, test-first | pending |
+| T19 | Marcador de enganche verde y visible, también en plantillas | S6 | ui, test-first | `1429046` |
 
 ## Slices
 
@@ -65,7 +65,7 @@ vigente; esto lo complementa.
 | 1 | pending | geometría de edición en `core/edit.py` (T14) |
 | 2 | `7dba1f3` | comando de dibujo, Esc que conserva, selección por ventana y `Supr` (T15, T16), más las herramientas de contorno y su documentación (T17, T18) |
 
-| 3 | pending | marcador de enganche como CAD (T19, S6) |
+| 3 | `1429046` | marcador de enganche como CAD (T19, S6) |
 
 Los slices 2 y 3 se entregan en un mismo commit: los cambios se entrelazan en `ui/canvas.py` y
 `ui/app.py` (una herramienta necesita el estado de comando del slice 2), y separarlos por hunks
