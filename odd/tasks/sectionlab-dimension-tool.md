@@ -87,8 +87,8 @@ tool the user wields, like in a CAD program.
 | T7 | App wiring, strings, docs, auto-dimension removal | S1, S11 | ui + docs | `adbfe68` |
 | T8 | Alignment guides: pure guide computation and cursor lock | S12 | core/snap, test-first | `91a1849` |
 | T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | `adbfe68` |
-| T10 | Snap family switches: core filter, canvas state, persisted toolbar buttons | S13 | core + ui, test-first | pending |
-| T11 | One reference per click in the dimension tool | S2, S4 | ui, test-first | pending |
+| T10 | Snap family switches: core filter, canvas state, persisted toolbar buttons | S13 | core + ui, test-first | `37be3c9` |
+| T11 | One reference per click in the dimension tool | S2, S4 | ui, test-first | `37be3c9` |
 
 ## Log
 
@@ -156,3 +156,4 @@ alignment guides touch neither the dimension model nor the canvas.
 | 2 | `567ea83` | template parameter mapping and persistence (T3, T4) |
 | 3 | `adbfe68` | canvas and window: placed dimensions, selection, drag, delete, the Acotar tool, alignment guides, commands, strings, automatic dimensions removed, README (T5, T6, T7, T9) |
 | 4 | `d0a3f0c` | what the verification round corrected: honest drop reporting, no silent carry-over across a shape change, midpoint references, guide-locked dimension lines |
+| 5 | `37be3c9` | snap family switches with their own persisted buttons (T10, S13), and one reference per click in the dimension tool (T11, S2) |
