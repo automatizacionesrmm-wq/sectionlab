@@ -130,7 +130,7 @@ UI: dict[str, str] = {
     "dimension_tool_tip": (
         "Clic en una referencia y luego en otra; el tercer clic coloca la cota (Esc cancela)"
     ),
-    "dimension_tool_first": "Acotar: elige el primer punto",
+    "dimension_tool_first": "Acotar: elige el primer punto · Esc cancela",
     "dimension_tool_second": "Acotar: elige el segundo punto",
     "dimension_tool_place": "Acotar: mueve el cursor y haz clic para colocar la cota",
     "guides": "Líneas de referencia",
@@ -142,6 +142,9 @@ UI: dict[str, str] = {
     "snap_perpendicular": "Perpendicular",
     "snap_toggle_tip": "Activa o desactiva este enganche",
     "snap_none": "Todos los enganches están desactivados",
+    "command_cancelled": "Comando cancelado",
+    "toolbar_file": "Archivo",
+    "toolbar_vertices": "Vértices",
     "dimensions_hint": "Doble clic sobre una cota para cambiarla",
     "segment_selected_hint": (
         "Línea seleccionada: acótala con la herramienta Acotar para escribir su largo"
@@ -219,7 +222,7 @@ UI: dict[str, str] = {
     "calculated": "Resultados actualizados",
     "saved": "Proyecto guardado",
     "free_started": (
-        "Geometría libre: clic para añadir vértices · clic en el primero, botón derecho o Enter para cerrar"
+        "Geometría libre: clic para añadir vértices · Enter o botón derecho para cerrar · Esc cancela"
     ),
     "short_calculate": "Calcular",
     "short_open": "Abrir",

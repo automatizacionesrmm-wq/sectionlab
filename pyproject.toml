@@ -1,6 +1,6 @@
 [project]
 name = "sectionlab"
-version = "0.3.1"
+version = "0.3.2"
 description = "Desktop tool for cross-section geometric properties"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

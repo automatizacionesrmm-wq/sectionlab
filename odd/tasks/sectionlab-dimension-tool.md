@@ -74,6 +74,20 @@ tool the user wields, like in a CAD program.
   requirement: «la parte de los snad no tiene botones para activar y desactivar como tienen los
   CAD».
 
+- **S14 A ribbon that groups instead of listing.** The toolbar keeps the commands used while
+  drawing and pushes whole groups one click away: file operations (open, save, export) and
+  vertex operations (insert, delete) each become one button with a menu, and the snap switches
+  leave the ribbon for the right end of the status bar, small and icon-only, the way a CAD
+  does it. Every command stays reachable from the menus as before. Quoted requirement:
+  «quiero que organices la cinta para que no tengamos tantisimos iconos sino que hacemos sub
+  grupos o los agregamos abajos los osnad mas pequeños como lo hace autocad».
+- **S15 Esc cancels the running command.** `Esc` unwinds one level at a time, the way a CAD
+  does it: first it leaves the running command (the dimension tool, or the polyline being
+  drawn) and unchecks its button, saying so in the status bar; with no command running it
+  clears what is selected; with nothing to clear it does nothing. An editor that owns the
+  keyboard keeps its own `Esc`, so cancelling a typed value never kills the command behind it.
+  Quoted requirement: «debemos poner un sistema para desactivar los comando activos osea como
+  funciona CAD con esc por ejemplo el de dibujar lineas y desactivar el comando».
 ## Tasks
 
 | ID | Task | Specs | Route | Commit |
@@ -89,6 +103,8 @@ tool the user wields, like in a CAD program.
 | T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | `adbfe68` |
 | T10 | Snap family switches: core filter, canvas state, persisted toolbar buttons | S13 | core + ui, test-first | `37be3c9` |
 | T11 | One reference per click in the dimension tool | S2, S4 | ui, test-first | `37be3c9` |
+| T12 | Grouped ribbon and snap switches in the status bar | S14 | ui, test-first | `0a0b4a3` |
+| T13 | Esc cancels the running command | S15 | ui, test-first | `0a0b4a3` |
 
 ## Log
 
@@ -127,6 +143,13 @@ tool the user wields, like in a CAD program.
   dimension line ignored the guides and lost them under ortho. Anchors now come from the point
   the snaps and guides lock, and the dimension line is locked the same way.
 
+- **L8** (user, verbatim):
+  «quiero que organices la cinta para que no tengamos tantisimos iconos sino que hacemos sub
+  grupos o los agregamos abajos los osnad mas pequeños como lo hace autocad, ademas debemos
+  poner un sistema para desactivar los comando activos osea como funciona CAD con esc por
+  ejemplo el de dibujar lineas y desactivar el comando.»
+  Taken as S14 (grouped ribbon, snap switches moved to the status bar) and S15 (`Esc` cancels
+  the running command, one level at a time).
 - **L7** (user, verbatim):
   «bien ahora la parte de los snad no tiene botones para activar y desactivar como tienen los
   CAD aca tengo varios CAD libres que podermos revisar para poder aplicar eso y lo de las cotas
@@ -157,3 +180,4 @@ alignment guides touch neither the dimension model nor the canvas.
 | 3 | `adbfe68` | canvas and window: placed dimensions, selection, drag, delete, the Acotar tool, alignment guides, commands, strings, automatic dimensions removed, README (T5, T6, T7, T9) |
 | 4 | `d0a3f0c` | what the verification round corrected: honest drop reporting, no silent carry-over across a shape change, midpoint references, guide-locked dimension lines |
 | 5 | `37be3c9` | snap family switches with their own persisted buttons (T10, S13), and one reference per click in the dimension tool (T11, S2) |
+| 6 | `0a0b4a3` | grouped ribbon with the snap switches in the status bar (T12, S14) and `Esc` as the command canceller (T13, S15) |

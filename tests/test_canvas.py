@@ -235,13 +235,6 @@ def test_enter_closes_the_polyline(canvas: CanvasView, qtbot) -> None:
     assert canvas.section().outer.closed is True
 
 
-def test_escape_cancels_the_polyline(canvas: CanvasView, qtbot) -> None:
-    canvas.begin_drawing()
-    canvas.add_vertex(0, 0)
-    qtbot.keyClick(canvas, Qt.Key.Key_Escape)
-    assert canvas.section().outer.points == []
-
-
 def test_zoom_is_clamped(canvas: CanvasView) -> None:
     for _ in range(80):
         canvas.zoom_in()
@@ -902,14 +895,6 @@ def test_two_vertices_make_a_distance_dimension(canvas: CanvasView) -> None:
     dimension = canvas.dimensions()[0]
     assert dimension.kind == HORIZONTAL
     assert canvas._dimension_text(dimension) == "100.00"
-
-
-def test_escape_leaves_the_tool(canvas: CanvasView, qtbot) -> None:
-    canvas.set_section(free_section())
-    assert canvas.begin_dimension_tool() is True
-    assert canvas.is_placing_dimension() is True
-    qtbot.keyClick(canvas, Qt.Key.Key_Escape)
-    assert canvas.is_placing_dimension() is False
 
 
 def test_the_tool_needs_a_section(canvas: CanvasView) -> None:

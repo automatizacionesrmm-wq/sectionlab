@@ -8,6 +8,8 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QDockWidget, QMessageBox
 
+from PySide6.QtWidgets import QLineEdit
+
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_full
 from sectionlab.core.snap import SNAP_KINDS, SnapKind
@@ -254,9 +256,52 @@ def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
     toolbar = window.findChild(QToolBar, "main_toolbar")
     assert toolbar is not None
     actions = [action for action in toolbar.actions() if not action.isSeparator()]
-    assert len(actions) == 21  # 16 commands plus one button per snap family (spec S13)
-    for action in actions:
-        assert not action.icon().isNull(), action.text()
+    # Eleven command actions plus the two menu buttons, which Qt also wraps as actions
+    # (spec S14): the ribbon no longer carries one icon per file and vertex operation.
+    assert len(actions) == 13
+    commands = [action for action in actions if not action.icon().isNull()]
+    assert len(commands) == 11
+    for action in commands:
+        assert action.text()
+
+
+def test_the_toolbar_groups_files_and_vertices_behind_one_button_each(
+    window: MainWindow,
+) -> None:
+    from PySide6.QtWidgets import QToolButton, QToolBar
+
+    toolbar = window.findChild(QToolBar, "main_toolbar")
+    menus = [
+        widget
+        for widget in toolbar.findChildren(QToolButton)
+        if widget.menu() is not None and widget.objectName().startswith("toolbar_")
+    ]
+    assert [button.objectName() for button in menus] == ["toolbar_open", "toolbar_vertex"]
+    file_actions = [action for action in menus[0].menu().actions()]
+    vertex_actions = [action for action in menus[1].menu().actions()]
+    assert [action.text() for action in file_actions] == [
+        window.action_open.text(),
+        window.action_save.text(),
+        window.action_export.text(),
+    ]
+    assert [action.text() for action in vertex_actions] == [
+        window.action_insert_vertex.text(),
+        window.action_delete_vertex.text(),
+    ]
+    for button in menus:
+        assert not button.icon().isNull()
+
+
+def test_the_snap_switches_are_small_buttons_in_the_status_bar(window: MainWindow) -> None:
+    buttons = window.snap_buttons()
+    assert list(buttons) == list(SNAP_KINDS)
+    for kind, button in buttons.items():
+        assert button.isChecked() is window.snap_actions()[kind].isChecked()
+        assert button.iconSize().width() == 15
+        # Icon only, like the AutoCAD status toggles: the label stays in the tooltip.
+        assert button.toolButtonStyle() is Qt.ToolButtonStyle.ToolButtonIconOnly
+    window.snap_actions()[SnapKind.CENTER].setChecked(False)
+    assert buttons[SnapKind.CENTER].isChecked() is False
 
 
 def test_the_drawing_fills_the_window(window: MainWindow) -> None:
@@ -1037,3 +1082,59 @@ def test_the_snap_state_is_remembered_between_runs(snap_store) -> None:
     assert second.snap_actions()[SnapKind.ENDPOINT].isChecked() is True
     assert SnapKind.CENTER not in second.enabled_snaps()
     second.deleteLater()
+
+
+# ------------------------------------------------- Esc leaves the command (spec S15)
+
+
+def test_escape_leaves_the_dimension_command(window: MainWindow, qtbot) -> None:
+    free_rectangle(window)
+    window.action_dimension_tool.setChecked(True)
+    assert window.active_command() == "dimension"
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.active_command() is None
+    assert window.action_dimension_tool.isChecked() is False
+    assert window._message_label.text() == strings.label_for("command_cancelled")
+
+
+def test_escape_abandons_the_polyline_being_drawn(window: MainWindow, qtbot) -> None:
+    window.start_free_geometry()
+    window.canvas.add_vertex(0.0, 0.0)
+    window.canvas.add_vertex(100.0, 0.0)
+    assert window.active_command() == "draw"
+    assert "Esc cancela" in window._message_label.text()
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.active_command() is None
+    assert window.canvas.section().outer.points == []
+
+
+def test_escape_without_a_command_clears_the_selection(window: MainWindow, qtbot) -> None:
+    free_rectangle(window)
+    window.canvas.select_vertex("outer", 1)
+    assert window.canvas.selected_vertex() is not None
+    assert window.active_command() is None
+    qtbot.keyClick(window.canvas, Qt.Key.Key_Escape)
+    assert window.canvas.selected_vertex() is None
+
+
+def test_escape_reaches_the_window_from_another_widget(window: MainWindow, qtbot) -> None:
+    free_rectangle(window)
+    window.action_dimension_tool.setChecked(True)
+    qtbot.keyClick(window.vertex_table, Qt.Key.Key_Escape)
+    assert window.active_command() is None
+
+
+def test_escape_while_typing_a_dimension_value_only_closes_the_editor(
+    window: MainWindow, qtbot
+) -> None:
+    free_rectangle(window)
+    free_rectangle(window)
+    window.action_dimension_tool.setChecked(True)
+    dimension = window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    assert window.canvas.begin_dimension_edit(dimension) is True
+    assert window.canvas.has_dimension_editor() is True
+    editor = window.canvas.findChild(QLineEdit, "dimension_editor")
+    assert editor is not None
+    qtbot.keyClick(editor, Qt.Key.Key_Escape)
+    assert window.canvas.has_dimension_editor() is False
+    assert window.active_command() == "dimension"  # the command behind the editor survives
