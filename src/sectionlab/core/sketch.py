@@ -1,17 +1,38 @@
-"""Geometry edits driven by a dimension (spec S3).
+"""Geometry edits driven by a dimension (specs S3-S5, S7).
 
-Pure functions over millimetre points so the rules are testable without Qt. Changing the width
-or the height of one axis-aligned segment shifts every vertex after it, which keeps the ring
-closed: the drawing stays a section instead of turning into an open path.
+Pure functions over millimetre points so the rules are testable without Qt. One single rule
+serves every kind of dimension: the geometry at or beyond the plane through the dimension's
+second anchor slides along the measured axis by exactly the difference, and everything behind
+that plane stays put. Sliding a whole side rigidly is what keeps a rectangle a rectangle and an
+I profile symmetric.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
+from sectionlab.core.dimensions import (
+    ANCHOR_VERTEX,
+    SEGMENT_LENGTH,
+    Dimension,
+    Anchor,
+    axis,
+    boundary,
+    is_editable,
+    measure,
+)
 from sectionlab.core.model import Point
 
 TOLERANCE_MM = 1e-9
+
+_REASON_MESSAGES = {
+    "closing_segment": "the closing segment follows the others",
+    "slanted_segment": "only widths, heights and axis-aligned lengths can drive the geometry",
+    "unchanged_anchors": "the two references do not define a distance on that axis",
+    "out_of_range": "the dimension points outside the contour",
+    "too_few_vertices": "a dimension needs at least three vertices",
+    "unknown_kind": "that kind of dimension cannot drive the geometry",
+}
 
 
 class SketchError(ValueError):
@@ -32,6 +53,42 @@ def segment_length(points: Sequence[Point], index: int) -> float:
     return ((end.x - start.x) ** 2 + (end.y - start.y) ** 2) ** 0.5
 
 
+def set_measure(
+    points: Sequence[Point],
+    dimension: Dimension,
+    target_mm: float,
+    *,
+    tolerance: float = TOLERANCE_MM,
+) -> list[Point]:
+    """Make ``dimension`` measure ``target_mm`` by moving one side of the section.
+
+    The reference the user picked first never moves; the side holding the second anchor slides
+    away from it. A measure no single rule can satisfy is refused with a code, never guessed.
+    """
+    if len(points) < 3:
+        raise SketchError("too_few_vertices", "a dimension needs at least three vertices")
+
+    editable, reason = is_editable(points, dimension)
+    if not editable:
+        raise SketchError(reason, _REASON_MESSAGES.get(reason, reason))
+    if target_mm <= tolerance:
+        raise SketchError("non_positive", "a dimension must be greater than zero")
+
+    current = measure(points, dimension)
+    if abs(current - target_mm) <= tolerance:
+        raise SketchError("unchanged", "the dimension already has that value")
+
+    direction = axis(points, dimension)
+    plane = boundary(points, dimension)
+    delta = target_mm - current
+    return [
+        Point(point.x + delta * direction.x, point.y + delta * direction.y)
+        if point.x * direction.x + point.y * direction.y >= plane - tolerance
+        else point
+        for point in points
+    ]
+
+
 def set_segment_length(
     points: Sequence[Point],
     index: int,
@@ -39,54 +96,18 @@ def set_segment_length(
     *,
     tolerance: float = TOLERANCE_MM,
 ) -> list[Point]:
-    """Make one axis-aligned segment measure ``length_mm``.
+    """Make one segment of the ring measure ``length_mm``.
 
-    The segment keeps its direction and every vertex on the far side of it moves with the
-    same delta, which is what keeps a rectangle a rectangle and an I profile symmetric.
-    Slanted segments and the closing segment are refused, because their length follows from
-    the others.
+    The width and height case of :func:`set_measure`, kept while the canvas still derives one
+    dimension per segment; the dimension tool calls ``set_measure`` directly.
     """
     count = len(points)
-    if count < 3:
-        raise SketchError("too_few_vertices", "a dimension needs at least three vertices")
     if not 0 <= index < count:
         raise SketchError("out_of_range", "segment index outside the contour")
-    if index == count - 1:
-        raise SketchError("closing_segment", "the closing segment follows the others")
-    if length_mm <= tolerance:
-        raise SketchError("non_positive", "a dimension must be greater than zero")
-
-    start = points[index]
-    end = points[index + 1]
-    dx = end.x - start.x
-    dy = end.y - start.y
-    horizontal = abs(dy) <= tolerance and abs(dx) > tolerance
-    vertical = abs(dx) <= tolerance and abs(dy) > tolerance
-    if not horizontal and not vertical:
-        raise SketchError("slanted_segment", "only widths and heights can drive the geometry")
-
-    current = abs(dx) if horizontal else abs(dy)
-    if abs(current - length_mm) <= tolerance:
-        raise SketchError("unchanged", "the dimension already has that value")
-
-    # The section moves on the far side of the edited segment only, so the edges behind it
-    # keep their shape: widening a rectangle's bottom edge makes the rectangle wider instead
-    # of shearing its left side.
-    delta = length_mm - current
-    if horizontal:
-        direction = 1.0 if dx > 0 else -1.0
-        boundary = end.x
-        return [
-            Point(point.x + delta * direction, point.y)
-            if (point.x - boundary) * direction >= -tolerance
-            else point
-            for point in points
-        ]
-    direction = 1.0 if dy > 0 else -1.0
-    boundary = end.y
-    return [
-        Point(point.x, point.y + delta * direction)
-        if (point.y - boundary) * direction >= -tolerance
-        else point
-        for point in points
-    ]
+    dimension = Dimension(
+        id=0,
+        first=Anchor(ANCHOR_VERTEX, index),
+        second=Anchor(ANCHOR_VERTEX, (index + 1) % count),
+        kind=SEGMENT_LENGTH,
+    )
+    return set_measure(points, dimension, length_mm, tolerance=tolerance)

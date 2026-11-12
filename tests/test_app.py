@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QThread, Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QDockWidget, QMessageBox
 
@@ -12,7 +13,16 @@ from sectionlab.core.precision import format_full
 from sectionlab.core.templates import TemplateKind
 from sectionlab.core.units import Unit
 from sectionlab.ui import strings
+from sectionlab.core.dimensions import (
+    ANCHOR_VERTEX,
+    HORIZONTAL,
+    SEGMENT_LENGTH,
+    Anchor,
+)
 from sectionlab.ui.app import MainWindow
+
+ANCHOR_0 = Anchor(ANCHOR_VERTEX, 0)
+ANCHOR_1 = Anchor(ANCHOR_VERTEX, 1)
 from sectionlab.ui.settings import AppSettings
 from sectionlab.ui.theme import DARK, LIGHT, Theme
 
@@ -243,7 +253,7 @@ def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
     toolbar = window.findChild(QToolBar, "main_toolbar")
     assert toolbar is not None
     actions = [action for action in toolbar.actions() if not action.isSeparator()]
-    assert len(actions) == 14
+    assert len(actions) == 16
     for action in actions:
         assert not action.icon().isNull(), action.text()
 
@@ -361,6 +371,7 @@ def test_the_canvas_writes_numbers_in_the_unit_the_panels_accept(window: MainWin
         )
     )
     assert window.calculate_now() is True
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
     assert window.canvas._dimension_text(window.canvas.dimensions()[0]) == "100.00"
 
     window.set_unit(Unit.CM)
@@ -400,7 +411,8 @@ def test_a_dimension_edit_invalidates_the_previous_results(window: MainWindow) -
     )
     assert window.calculate_now() is True
     assert window.properties() is not None
-    assert window.canvas.apply_dimension_length(0, 150.0) is True
+    dimension = window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    assert window.canvas.drive_dimension(dimension.id, 150.0) is True
     assert window.properties() is None
     assert window.canvas.section().outer.points[1] == Point(150, 0)
 
@@ -417,9 +429,10 @@ def test_a_template_section_can_become_editable_geometry(window: MainWindow) -> 
     assert window.section().template is None
     assert window.section().outer.points == before
     assert window.canvas.is_editable() is True
-    # The vertex table accepts edits and the dimensions become editable in place.
+    # The vertex table accepts edits and a placed dimension drives the geometry in place.
     assert window.vertex_table.isEnabled() is True
-    assert window.canvas.apply_dimension_length(0, 150.0) is True
+    dimension = window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    assert window.canvas.drive_dimension(dimension.id, 150.0) is True
     assert window.section().outer.points[1] == Point(150, 0)
 
 
@@ -860,3 +873,119 @@ def test_a_manual_check_that_fails_opens_a_dialog_naming_the_log(qtbot, monkeypa
     main.check_for_updates()
     qtbot.waitUntil(lambda: main._checker is None, timeout=2000)
     assert seen and "updates.log" in seen[0] and "getaddrinfo failed" in seen[0]
+
+
+# ------------------------------------------------- dimensioning from the window (S1, S2, S6)
+
+
+def free_rectangle(window: MainWindow) -> None:
+    window.canvas.set_section(
+        Section(
+            outer=Contour(
+                points=[Point(0, 0), Point(100, 0), Point(100, 60), Point(0, 60)],
+                closed=True,
+            )
+        )
+    )
+
+
+def test_the_window_offers_a_dimension_tool(window: MainWindow) -> None:
+    assert window.action_dimension_tool.shortcut() == QKeySequence("D")
+    free_rectangle(window)
+    window.action_dimension_tool.setChecked(True)
+    assert window.dimension_tool_active() is True
+    window.action_dimension_tool.setChecked(False)
+    assert window.dimension_tool_active() is False
+
+
+def test_the_tool_needs_a_section(window: MainWindow) -> None:
+    window.action_dimension_tool.setChecked(True)
+    assert window.dimension_tool_active() is False
+    assert not window.action_dimension_tool.isChecked()
+    assert window._message_label.text() == strings.label_for("dimension_needs_section")
+
+
+def test_the_status_bar_explains_the_tool_steps(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.action_dimension_tool.setChecked(True)
+    assert window._message_label.text() == strings.label_for("dimension_tool_first")
+    window.canvas.dimensionStepChanged.emit(1)
+    assert window._message_label.text() == strings.label_for("dimension_tool_second")
+    window.canvas.dimensionStepChanged.emit(2)
+    assert window._message_label.text() == strings.label_for("dimension_tool_place")
+
+
+def test_leaving_the_tool_with_escape_clears_the_action(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.action_dimension_tool.setChecked(True)
+    window.canvas.cancel_dimension_tool()
+    assert window.action_dimension_tool.isChecked() is False
+
+
+def test_a_placed_dimension_is_announced(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    assert window._message_label.text() == strings.label_for("dimension_placed")
+
+
+def test_guides_can_be_switched_off_from_the_view_menu(window: MainWindow) -> None:
+    assert window.action_guides.isChecked()
+    assert window.guides_visible()
+    window.action_guides.setChecked(False)
+    assert window.guides_visible() is False
+    assert window.action_guides.shortcut() == QKeySequence("Ctrl+L")
+
+
+def test_a_guide_names_its_reference_in_the_status_bar(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.canvas.guidesChanged.emit("X con v1")
+    assert window._snap_label.text() == "X con v1"
+    # A snap is exact, so it takes the space from the guide.
+    window.canvas.snapChanged.emit("ENDPOINT")
+    assert window._snap_label.text() == strings.label_for("snap_endpoint")
+    window.canvas.guidesChanged.emit("")
+
+
+def test_dimensions_travel_with_the_document(window: MainWindow, tmp_path) -> None:
+    free_rectangle(window)
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    target = tmp_path / "dimensioned.sectionlab"
+    window.save_document(target)
+    window.canvas.set_section(Section(outer=Contour(points=[])))
+    assert window.canvas.dimensions() == []
+    assert window.open_document(target) is True
+    assert len(window.canvas.dimensions()) == 1
+    assert window.canvas._dimension_text(window.canvas.dimensions()[0]) == "100.00"
+
+
+def test_a_dimension_edit_moves_the_template_parameter_form(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value) is True
+    dimension = window.canvas.add_dimension(
+        Anchor(ANCHOR_VERTEX, 0), Anchor(ANCHOR_VERTEX, 1), HORIZONTAL, offset_mm=20.0
+    )
+    assert window.canvas.drive_dimension(dimension.id, 300.0) is True
+    assert window.section().template.params["b"] == pytest.approx(300.0)
+    assert window.template_panel.params()["b"] == pytest.approx(300.0)
+
+
+def test_dropping_a_dimension_is_explained(window: MainWindow) -> None:
+    free_rectangle(window)
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
+    window.canvas.delete_vertex("outer", 0)
+    assert window._message_label.text() == f"1 {strings.label_for('dimension_dropped')}"
+
+
+def test_switching_template_kind_drops_the_placed_dimensions(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value) is True
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, HORIZONTAL, offset_mm=20.0)
+    assert len(window.canvas.dimensions()) == 1
+    assert window.apply_template(TemplateKind.CIRCLE.value) is True
+    assert window.canvas.dimensions() == []
+    assert strings.label_for("dimension_dropped") in window._message_label.text()
+
+
+def test_rebuilding_the_same_template_keeps_its_dimensions(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value) is True
+    dimension = window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, HORIZONTAL, offset_mm=20.0)
+    assert window.apply_template(TemplateKind.RECTANGLE.value, {"b": 300.0, "h": 80.0}) is True
+    assert [item.id for item in window.canvas.dimensions()] == [dimension.id]
