@@ -88,7 +88,11 @@ PDF/PNG reports, **DXF import/export**.
    Every snap family has its own button in the toolbar — **Extremo**, **Punto medio**, **Centro**,
    **Intersección** and **Perpendicular** — and each one switches on and off on its own, like the
    object-snap bar of a CAD. The choice is remembered between runs, so switch off the families
-   you do not want the cursor to catch.
+   you do not want the cursor to catch. The family the cursor is on is marked the way a CAD does
+   it: a thick green glyph over a dark halo at the exact point — a square for an endpoint, a
+   triangle for a midpoint, a circle for a centre, a cross for an intersection, an `L` for a
+   perpendicular foot — with its name on a chip beside it, so the marker reads over the geometry
+   and over the grid rather than getting lost in it.
 3. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.

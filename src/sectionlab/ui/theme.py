@@ -58,6 +58,7 @@ DARK: dict[str, str] = {
     "dim": "#4a6b7d",
     "dim_text": "#c9d4e4",
     "snap": "#4ade80",
+    "snap_marker": "#3dff85",
     "warning": "#ffb648",
 }
 
@@ -97,6 +98,7 @@ LIGHT: dict[str, str] = {
     "dim": "#7c8899",
     "dim_text": "#27313d",
     "snap": "#15803d",
+    "snap_marker": "#0b7a3c",
     "warning": "#b45309",
 }
 

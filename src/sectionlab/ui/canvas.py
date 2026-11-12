@@ -87,7 +87,8 @@ DIM_GAP_PX = 4.0
 DIM_HIT_PX = 13.0
 # Clicking this close to an edge selects that segment, as picking a line does in CAD.
 SEGMENT_HIT_PX = 7.0
-SNAP_GLYPH_PX = 5.5
+SNAP_GLYPH_PX = 8.0
+SNAP_HALO_PX = 5.0
 # Clicking this close to the first vertex closes the polyline, like an object snap target.
 CLOSE_HIT_PX = 14.0
 ZOOM_STEP = 1.15
@@ -521,6 +522,10 @@ class CanvasView(QGraphicsView):
             self._apply_section(section, keep_dimensions=keep_dimensions)
         if fit:
             self.fit_to_content()
+
+    def snap_kind(self) -> SnapKind | None:
+        """The snap family the cursor is on, or None (spec S5)."""
+        return self._snap_kind
 
     def is_drawing(self) -> bool:
         """True while the outer contour is an open polyline being drawn."""
@@ -1526,15 +1531,27 @@ class CanvasView(QGraphicsView):
         painter.drawText(QPointF(centre.x() + 7, centre.y() - 6), "C")
 
     def _draw_snap(self, painter: QPainter) -> None:
-        """Glyph and name of the snap the cursor is on, like an osnap marker (spec S5)."""
+        """The osnap marker: a bright green glyph on a dark halo, plus the family name (S5).
+
+        A CAD's marker has to be readable over any geometry, so the glyph is drawn twice: a
+        thick dark outline first and the green mark on top of it.
+        """
         if self._snap_kind is None or self._cursor_scene is None:
             return
         point = self.mapFromScene(self._cursor_scene)
-        colour = QColor(_PALETTE["snap"])
-        painter.setPen(QPen(colour, 1.6))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        green = QColor(_PALETTE["snap_marker"])
+        halo = QColor(_PALETTE["panel"])
+        halo.setAlpha(210)
         size = SNAP_GLYPH_PX
-        kind = self._snap_kind
+        for colour, width in ((halo, SNAP_HALO_PX), (green, 2.4)):
+            pen = QPen(colour, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            self._draw_snap_glyph(painter, self._snap_kind, point, size)
+        self._draw_snap_label(painter, point, size, green)
+
+    def _draw_snap_glyph(self, painter: QPainter, kind, point: QPointF, size: float) -> None:
         if kind is SnapKind.ENDPOINT:
             painter.drawRect(QRectF(point.x() - size, point.y() - size, size * 2, size * 2))
         elif kind is SnapKind.MIDPOINT:
@@ -1555,9 +1572,24 @@ class CanvasView(QGraphicsView):
         elif kind is SnapKind.PERPENDICULAR:
             painter.drawLine(QPointF(point.x() - size, point.y() + size), QPointF(point.x() + size, point.y() + size))
             painter.drawLine(QPointF(point.x() - size, point.y() - size), QPointF(point.x() - size, point.y() + size))
+
+    def _draw_snap_label(self, painter: QPainter, point: QPointF, size: float, colour: QColor) -> None:
+        """The family name on a chip, so it reads over the grid too."""
+        assert self._snap_kind is not None
+        name = strings.label_for(f"snap_{self._snap_kind.value.lower()}")
+        metrics = QFontMetricsF(painter.font())
+        width = metrics.horizontalAdvance(name) + 10
+        height = metrics.height() + 2
+        left = point.x() + size + 5
+        top = point.y() - size - height
+        chip = QColor(_PALETTE["panel"])
+        chip.setAlpha(220)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(chip))
+        painter.drawRoundedRect(QRectF(left, top, width, height), 4, 4)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(colour))
-        name = strings.label_for(f"snap_{kind.value.lower()}")
-        painter.drawText(QPointF(point.x() + size + 6, point.y() - size - 2), name)
+        painter.drawText(QPointF(left + 5, top + metrics.ascent() + 1), name)
 
     def _selected_point(self) -> QPointF | None:
         chosen = self.selected_vertex()
@@ -1851,7 +1883,7 @@ class CanvasView(QGraphicsView):
         self.snapChanged.emit(kind.value if kind is not None else "")
         self.guidesChanged.emit(self.guides_label())
         self.cursorMoved.emit(point.x, point.y)
-        self._snap_kind = kind if self._editable else None
+        self._snap_kind = kind
         self.viewport().update()
 
         if self._dimension_drag is not None:
