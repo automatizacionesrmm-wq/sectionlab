@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+from datetime import datetime
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -164,6 +165,7 @@ class MainWindow(QMainWindow):
         self._relaunch = _relaunch_application
         self._open_installer = _open_installer
         self._automatic_check = False
+        self._last_check: tuple[str, str, str] | None = None
         self._release: Release | None = None
         self._icon_targets: list[tuple[QAction, str]] = []
         self._glyphs: list[tuple[QLabel, str]] = []
@@ -219,7 +221,15 @@ class MainWindow(QMainWindow):
         self._refresh_displays()
         self._message_label.setText(strings.label_for("ready"))
         if self._interactive:
-            QTimer.singleShot(AUTO_CHECK_DELAY_MS, lambda: self.check_for_updates(automatic=True))
+            # Parented to the window: closing it before the delay must cancel the check
+            # instead of firing into a deleted C++ object.
+            self._auto_check_timer = QTimer(self)
+            self._auto_check_timer.setSingleShot(True)
+            self._auto_check_timer.setInterval(AUTO_CHECK_DELAY_MS)
+            self._auto_check_timer.timeout.connect(
+                lambda: self.check_for_updates(automatic=True)
+            )
+            self._auto_check_timer.start()
 
     # ------------------------------------------------------------------ construction
 
@@ -911,6 +921,8 @@ class MainWindow(QMainWindow):
     def check_for_updates(self, *, automatic: bool = False) -> bool:
         """Ask GitHub for the newest release in the background (spec S2)."""
         if self._checker is not None and self._checker.isRunning():
+            if not automatic:
+                self._set_message(strings.label_for("checking_in_flight"))
             return False
         self._automatic_check = automatic
         if not automatic:
@@ -929,19 +941,52 @@ class MainWindow(QMainWindow):
         return self._release
 
     def _on_release_offered(self, release: Release) -> None:
+        self._record_check("offered", release.version)
         self._release = release
         self.update_banner.offer(release.version)
 
     def _on_up_to_date(self, release: Release) -> None:
+        self._record_check("up_to_date", release.version)
+        if not self._automatic_check:
+            text = f"{strings.label_for('up_to_date')} ({release.version})"
+            self._set_message(text)
+            if self._interactive:
+                QMessageBox.information(self, strings.label_for("about"), text)
         self._release = None
         self.update_banner.dismiss()
         if not self._automatic_check:
             self._set_message(f"{strings.label_for('up_to_date')} ({release.version})")
 
-    def _on_check_failed(self, code: str) -> None:
+    def _on_check_failed(self, code: str, detail: str = "") -> None:
         # An automatic check never nags: offline is not an error the user must see (spec S7).
+        self._record_check("failed", detail or code)
         if not self._automatic_check:
+            reason = f"{strings.update_message(code)}\n\n{strings.label_for('check_log_hint')} "
+            reason += str(self.check_log_path())
+            if detail:
+                reason += f"\n\n{detail}"
             self._set_message(strings.update_message(code))
+            if self._interactive:
+                QMessageBox.warning(self, strings.label_for("update_failed"), reason)
+
+    def _record_check(self, outcome: str, detail: str = "") -> None:
+        """Keep and log what the last check answered, so a silent failure is still evidence."""
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._last_check = (stamp, outcome, detail)
+        line = f"{stamp}\t{outcome}\t{detail}".rstrip("\t")
+        try:
+            path = self.check_log_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as log:
+                log.write(line + "\n")
+        except OSError:
+            pass  # a log that cannot be written must never break an update check
+
+    def check_log_path(self) -> Path:
+        base = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation
+        )
+        return Path(base or tempfile.gettempdir()) / "updates.log"
 
     def _on_checker_finished(self) -> None:
         checker = self._checker
@@ -1075,8 +1120,20 @@ class MainWindow(QMainWindow):
         return (
             f"{APP_NAME} {__version__}\n"
             f"{strings.label_for('about_license')}\n\n"
+            f"{self.last_check_text()}\n\n"
             f"{REPOSITORY}"
         )
+
+    def last_check_text(self) -> str:
+        """What the last update check answered, so a silent failure can still be read."""
+        state = self._last_check
+        if state is None:
+            return strings.label_for("update_state_never")
+        stamp, outcome, detail = state
+        text = f"{strings.label_for(f'update_state_{outcome}')} — {stamp}"
+        if detail:
+            text += f" · {detail}"
+        return text
 
     def show_about(self) -> None:
         QMessageBox.about(self, strings.label_for("about"), self.about_text())

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, QThread, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QDockWidget, QMessageBox
 
@@ -624,6 +624,7 @@ def test_a_manual_check_that_fails_explains_itself(window: MainWindow, qtbot) ->
     window.check_for_updates()
     qtbot.waitUntil(lambda: window._checker is None, timeout=2000)
     assert window._message_label.text() == strings.update_message("check_failed")
+    assert window.last_check_text().startswith(strings.label_for("update_state_failed"))
 
 
 def test_the_help_menu_offers_both_entries(window: MainWindow) -> None:
@@ -768,3 +769,94 @@ def test_picking_a_segment_explains_that_it_takes_typed_input(window: MainWindow
     open_section(window)
     window.canvas.select_segment("outer", 0)
     assert window._message_label.text() == strings.label_for("segment_selected_hint")
+
+
+def test_a_failed_check_says_so_in_the_about_box_and_the_log(window: MainWindow, qtbot, tmp_path) -> None:
+    """A silent automatic failure has to leave evidence somewhere we can read later."""
+    from sectionlab.core.update import UpdateError
+
+    log = tmp_path / "updates.log"
+    window.check_log_path = lambda: log
+
+    def offline():
+        raise UpdateError("check_failed", "getaddrinfo failed for api.github.com")
+
+    window._fetch = offline
+    window.check_for_updates(automatic=True)
+    qtbot.waitUntil(lambda: window._checker is None, timeout=2000)
+
+    assert window._message_label.text() != strings.label_for("checking_updates")  # no nagging...
+    text = window.last_check_text()
+    assert strings.label_for("update_state_failed") in text
+    assert "getaddrinfo failed" in text
+    assert "getaddrinfo failed" in log.read_text(encoding="utf-8")
+
+
+def test_the_about_box_reports_the_last_successful_check(window: MainWindow, qtbot, tmp_path) -> None:
+    window.check_log_path = lambda: tmp_path / "updates.log"
+    window._fetch = lambda: rectangle_release("9.9.9")
+    window.check_for_updates(automatic=True)
+    qtbot.waitUntil(lambda: window._checker is None, timeout=2000)
+    assert strings.label_for("update_state_offered") in window.last_check_text()
+    assert window.last_check_text() in window.about_text()
+
+
+def test_a_manual_check_while_one_is_running_says_so(window: MainWindow) -> None:
+    """Never do nothing silently: a second click must answer."""
+    window._checker = _RunningThread(window)
+    assert window.check_for_updates() is False
+    assert window._message_label.text() == strings.label_for("checking_in_flight")
+
+
+class _RunningThread(QThread):
+    def isRunning(self) -> bool:  # noqa: N802 - Qt override
+        return True
+
+
+def test_a_new_window_has_no_check_history(window: MainWindow) -> None:
+    assert window.last_check_text() == strings.label_for("update_state_never")
+
+
+def test_destroying_the_window_cancels_the_automatic_check(qtbot) -> None:
+    """A scheduled check must die with its window, not fire into a deleted C++ object."""
+    from sectionlab.ui.app import AUTO_CHECK_DELAY_MS
+
+    calls: list[int] = []
+    window = MainWindow(AppSettings(), interactive=True)
+    window._fetch = lambda: calls.append(1) or rectangle_release("9.9.9")
+    window.show()
+    window.close()
+    window.deleteLater()
+    qtbot.wait(AUTO_CHECK_DELAY_MS + 400)
+    assert calls == []
+
+
+def test_a_manual_check_that_finds_nothing_new_says_so_out_loud(qtbot, monkeypatch) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: seen.append(a[2])))
+    main = MainWindow(AppSettings(), interactive=True)
+    qtbot.addWidget(main)
+    main.check_log_path = lambda: __import__("pathlib").Path("/tmp/sectionlab-test-updates.log")
+    main._fetch = lambda: rectangle_release("0.1.0")
+    main.check_for_updates()
+    qtbot.waitUntil(lambda: main._checker is None, timeout=2000)
+    assert strings.label_for("up_to_date") in main._message_label.text()
+    assert seen and "0.1.0" in seen[0]
+
+
+def test_a_manual_check_that_fails_opens_a_dialog_naming_the_log(qtbot, monkeypatch) -> None:
+    from sectionlab.core.update import UpdateError
+
+    seen: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: seen.append(a[2])))
+    main = MainWindow(AppSettings(), interactive=True)
+    qtbot.addWidget(main)
+    main.check_log_path = lambda: __import__("pathlib").Path("/tmp/sectionlab-test-updates.log")
+
+    def offline():
+        raise UpdateError("check_failed", "getaddrinfo failed")
+
+    main._fetch = offline
+    main.check_for_updates()
+    qtbot.waitUntil(lambda: main._checker is None, timeout=2000)
+    assert seen and "updates.log" in seen[0] and "getaddrinfo failed" in seen[0]

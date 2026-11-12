@@ -18,7 +18,7 @@ class UpdateChecker(QThread):
 
     offered = Signal(object)  # Release newer than the running version
     upToDate = Signal(object)  # Release, not newer than the running version
-    failed = Signal(str)  # English code
+    failed = Signal(str, str)  # English code, and the underlying message for the log
 
     def __init__(self, fetch, current: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -29,10 +29,10 @@ class UpdateChecker(QThread):
         try:
             release = self._fetch()
         except UpdateError as error:
-            self.failed.emit(error.code)
+            self.failed.emit(error.code, str(error))
             return
-        except Exception:  # a thread must never raise into Qt
-            self.failed.emit("check_failed")
+        except Exception as error:  # a thread must never raise into Qt
+            self.failed.emit("check_failed", f"{type(error).__name__}: {error}")
             return
         if is_newer(self._current, release.version):
             self.offered.emit(release)
@@ -96,7 +96,7 @@ class UpdateDownloader(QThread):
     """Fetch one release asset without freezing the window (spec S4)."""
 
     ready = Signal(str)  # the file that is now on disk
-    failed = Signal(str)  # English code
+    failed = Signal(str, str)  # English code, and the underlying message for the log
 
     def __init__(self, asset: Asset, target, opener=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
