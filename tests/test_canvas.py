@@ -1120,3 +1120,76 @@ def test_guides_still_align_the_free_axis_while_ortho_is_on(canvas: CanvasView) 
     locked, _ = canvas.snapped_point(canvas.mapToScene(canvas.mapFromScene(QPointF(100.5, -0.5))))
     assert (locked.x, locked.y) == (pytest.approx(100.0), pytest.approx(0.0))
     assert [guide.axis for guide in canvas.current_guides()] == ["x"]
+
+
+# ------------------------------------------------- osnap marker (spec S5, corrected)
+
+
+def _green_pixels_near(canvas: CanvasView, x: float, y: float, radius: int = 14) -> int:
+    """Count bright green pixels within `radius` of a scene point on the viewport."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    image = QImage(canvas.viewport().size(), QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    canvas.render(painter)
+    painter.end()
+    spot = canvas.mapFromScene(QPointF(x, -y))
+    count = 0
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            px, py = spot.x() + dx, spot.y() + dy
+            if not (0 <= px < image.width() and 0 <= py < image.height()):
+                continue
+            colour = QColor(image.pixel(px, py))
+            if colour.green() > 180 and colour.green() - colour.red() > 90 and colour.green() - colour.blue() > 60:
+                count += 1
+    return count
+
+
+def test_the_snap_marker_is_a_solid_green_glyph_at_the_point(canvas: CanvasView) -> None:
+    """A CAD marks the snap with a bright, thick green glyph, not a faint hairline (S5)."""
+    from sectionlab.core.snap import SnapKind
+
+    canvas.set_section(free_section(), fit=False)
+    canvas.resetTransform()
+    canvas._snap_kind = SnapKind.ENDPOINT
+    canvas._cursor_scene = QPointF(0.0, 0.0)
+    assert _green_pixels_near(canvas, 0.0, 0.0) >= 60
+
+
+def test_the_snap_marker_shows_on_a_section_that_cannot_be_edited(canvas: CanvasView) -> None:
+    """Measuring a template section still snaps: the marker is not free-geometry only (S5)."""
+    from sectionlab.core.snap import SnapKind
+
+    canvas.set_section(free_section(), fit=False)
+    canvas.set_editable(False)
+    canvas.resetTransform()
+    canvas.mouseMoveEvent(_move_event(canvas, 0.0, 0.0))
+    assert canvas.snap_kind() is SnapKind.ENDPOINT
+
+
+def _move_event(canvas: CanvasView, x: float, y: float):
+    position = canvas.mapFromScene(QPointF(x, -y))
+    return QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(position),
+        QPointF(position),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_the_marker_differs_for_each_snap_family(canvas: CanvasView) -> None:
+    """Each family draws its own glyph, so the user can tell what the cursor caught (S5)."""
+    from sectionlab.core.snap import SnapKind
+
+    canvas.set_section(free_section(), fit=False)
+    canvas.resetTransform()
+    canvas._cursor_scene = QPointF(0.0, 0.0)
+    counts = {}
+    for kind in SnapKind:
+        canvas._snap_kind = kind
+        counts[kind] = _green_pixels_near(canvas, 0.0, 0.0)
+    assert len(set(counts.values())) > 1
