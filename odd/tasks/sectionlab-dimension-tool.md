@@ -50,6 +50,15 @@ tool the user wields, like in a CAD program.
   disappears is removed and the status bar says so.
 - **S11 Nothing else changes.** Units, precision, validation, section calculation, snapping,
   undo/redo, templates and the update flow keep their current semantics.
+- **S12 Alignment guides.** While the cursor moves over the drawing — free geometry drawing,
+  dimension placement and vertex dragging alike — the canvas shows dashed reference lines from
+  the drawing's reference points (vertices, edge midpoints and each contour's centre) whenever
+  the cursor shares their x or their y within a screen tolerance. The cursor locks to that
+  coordinate, so the point that gets placed is exactly aligned, the active guide names the
+  reference it belongs to in the status bar, and `Ver → Líneas de referencia` switches the
+  guides off. Guides are decoration over the geometry: they never move a vertex and never take
+  part in undo. Quoted requirement: «otra cosa que quiero tener es lo de los cad que haga como
+  las lineas de referencia con respecto a los puntos como para saber que estoy alineado».
 
 ## Tasks
 
@@ -62,6 +71,8 @@ tool the user wields, like in a CAD program.
 | T5 | Canvas draws, selects, drags and edits stored dimensions | S1, S5, S8, S9 | ui | T4 |
 | T6 | Dimension tool mode with snaps and preview | S2 | ui | T5 |
 | T7 | App wiring, strings, docs, auto-dimension removal | S1, S11 | ui + docs | T6 |
+| T8 | Alignment guides: pure guide computation and cursor lock | S12 | core/snap, test-first | independent of T1-T7 |
+| T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | T7, T8 |
 
 ## Log
 
@@ -76,6 +87,11 @@ tool the user wields, like in a CAD program.
   - Template: «Cada plantilla declara qué parámetro mueve».
   - Kinds in the first delivery: «Segmento + horizontal + vertical».
   - Automatic per-segment dimensions: «Se eliminan: solo las que yo cree».
+- **L4** (user, verbatim):
+  «otra cosa que quiero tener es lo de los cad que haga como las lineas de referencia con
+  respecto a los puntos como para saber que estoy alineado.»
+  Split as S12, T8 (pure computation, no Qt) and T9 (canvas and menu), because it does not
+  depend on the dimension model and can be built beside it.
 - **L3** (design consequence accepted by the parent): the reference is stored as an anchor
   (`vertex i` or `edge i at t`), the value is measured and never persisted, and one move rule —
   translate every vertex on the far side of a reference plane along a direction — serves the
