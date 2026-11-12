@@ -128,4 +128,4 @@ alignment guides touch neither the dimension model nor the canvas.
 | 1 | `34c3267`, `91a1849`, `fa48fb5`, `4f84e60` | specs; alignment guides (T8); dimension model and solver (T1, T2); lock sync |
 | 2 | `567ea83` | template parameter mapping and persistence (T3, T4) |
 | 3 | `adbfe68` | canvas and window: placed dimensions, selection, drag, delete, the Acotar tool, alignment guides, commands, strings, automatic dimensions removed, README (T5, T6, T7, T9) |
-| 4 | the commit that carries L5 | what the verification round corrected: honest drop reporting, no silent carry-over across a shape change, midpoint references, guide-locked dimension lines |
+| 4 | `d0a3f0c` | what the verification round corrected: honest drop reporting, no silent carry-over across a shape change, midpoint references, guide-locked dimension lines |
