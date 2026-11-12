@@ -64,15 +64,15 @@ tool the user wields, like in a CAD program.
 
 | ID | Task | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | Dimension model: anchors, kinds, measure, remapping | S3, S4, S10 | core, test-first | inherited |
-| T2 | Generalized measure solver: one move rule per kind | S5, S7 | core, test-first | T1 |
-| T3 | Template parameter mapping per template kind | S6 | core, test-first | T2 |
-| T4 | Persistence of dimensions in `.sectionlab` | S10 | core, test-first | T3 |
-| T5 | Canvas draws, selects, drags and edits stored dimensions | S1, S5, S8, S9 | ui | T4 |
-| T6 | Dimension tool mode with snaps and preview | S2 | ui | T5 |
-| T7 | App wiring, strings, docs, auto-dimension removal | S1, S11 | ui + docs | T6 |
-| T8 | Alignment guides: pure guide computation and cursor lock | S12 | core/snap, test-first | independent of T1-T7 |
-| T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | T7, T8 |
+| T1 | Dimension model: anchors, kinds, measure, remapping | S3, S4, S10 | core, test-first | `fa48fb5` |
+| T2 | Generalized measure solver: one move rule per kind | S5, S7 | core, test-first | `fa48fb5` |
+| T3 | Template parameter mapping per template kind | S6 | core, test-first | `567ea83` |
+| T4 | Persistence of dimensions in `.sectionlab` | S10 | core, test-first | `567ea83` |
+| T5 | Canvas draws, selects, drags and edits stored dimensions | S1, S5, S8, S9 | ui | `adbfe68` |
+| T6 | Dimension tool mode with snaps and preview | S2 | ui | `adbfe68` |
+| T7 | App wiring, strings, docs, auto-dimension removal | S1, S11 | ui + docs | `adbfe68` |
+| T8 | Alignment guides: pure guide computation and cursor lock | S12 | core/snap, test-first | `91a1849` |
+| T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | `adbfe68` |
 
 ## Log
 
@@ -106,5 +106,4 @@ alignment guides touch neither the dimension model nor the canvas.
 | --- | --- | --- |
 | 1 | `34c3267`, `91a1849`, `fa48fb5`, `4f84e60` | specs; alignment guides (T8); dimension model and solver (T1, T2); lock sync |
 | 2 | `567ea83` | template parameter mapping and persistence (T3, T4) |
-| 3 | — | canvas: drawn dimensions, selection, drag, tool mode, guides (T5, T6, T9) |
-| 4 | — | app wiring: commands, strings, automatic dimensions removed, docs (T7) |
+| 3 | `adbfe68` | canvas and window: placed dimensions, selection, drag, delete, the Acotar tool, alignment guides, commands, strings, automatic dimensions removed, README (T5, T6, T7, T9) |
