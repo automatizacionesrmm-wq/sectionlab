@@ -226,7 +226,7 @@ PyInstaller cannot cross-compile, so the Windows artifacts must be built on Wind
 spec builds on Linux, and the frozen binary accepts two flags useful for smoke testing:
 
 ```bash
-dist/SectionLab/SectionLab --version     # SectionLab 0.3.2
+dist/SectionLab/SectionLab --version     # SectionLab 0.4.0
 dist/SectionLab/SectionLab --self-test   # runs one rectangle calculation, prints area and Ix
 ```
 

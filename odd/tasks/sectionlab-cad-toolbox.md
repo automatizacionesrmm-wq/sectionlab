@@ -44,17 +44,17 @@ vigente; esto lo complementa.
 | ID | Tarea | Specs | Ruta | Commit |
 | --- | --- | --- | --- | --- |
 | T14 | `core/edit.py`: chaflán, offset, reflejo, rectángulo | S4 | core, test-first | `72545c7` |
-| T15 | Comando de dibujo explícito y Esc que conserva | S1, S2 | ui, test-first | pending |
-| T16 | Selección múltiple, por ventana y `Supr` | S3 | ui, test-first | pending |
-| T17 | Cinta y menús de las herramientas de edición | S4 | ui, test-first | pending |
-| T18 | README y ayuda: qué hay y qué no (trim/extend) | S5 | docs | pending |
+| T15 | Comando de dibujo explícito y Esc que conserva | S1, S2 | ui, test-first | `7dba1f3` |
+| T16 | Selección múltiple, por ventana y `Supr` | S3 | ui, test-first | `7dba1f3` |
+| T17 | Cinta y menús de las herramientas de edición | S4 | ui, test-first | `7dba1f3` |
+| T18 | README y ayuda: qué hay y qué no (trim/extend) | S5 | docs | `7dba1f3` |
 
 ## Slices
 
 | # | Commit | Qué entrega |
 | --- | --- | --- |
 | 1 | pending | geometría de edición en `core/edit.py` (T14) |
-| 2 | pending | comando de dibujo, Esc que conserva, selección por ventana y `Supr` (T15, T16), más las herramientas de contorno y su documentación (T17, T18) |
+| 2 | `7dba1f3` | comando de dibujo, Esc que conserva, selección por ventana y `Supr` (T15, T16), más las herramientas de contorno y su documentación (T17, T18) |
 
 Los slices 2 y 3 se entregan en un mismo commit: los cambios se entrelazan en `ui/canvas.py` y
 `ui/app.py` (una herramienta necesita el estado de comando del slice 2), y separarlos por hunks
