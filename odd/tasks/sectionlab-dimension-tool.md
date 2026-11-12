@@ -103,8 +103,8 @@ tool the user wields, like in a CAD program.
 | T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | `adbfe68` |
 | T10 | Snap family switches: core filter, canvas state, persisted toolbar buttons | S13 | core + ui, test-first | `37be3c9` |
 | T11 | One reference per click in the dimension tool | S2, S4 | ui, test-first | `37be3c9` |
-| T12 | Grouped ribbon and snap switches in the status bar | S14 | ui, test-first | pending |
-| T13 | Esc cancels the running command | S15 | ui, test-first | pending |
+| T12 | Grouped ribbon and snap switches in the status bar | S14 | ui, test-first | `0a0b4a3` |
+| T13 | Esc cancels the running command | S15 | ui, test-first | `0a0b4a3` |
 
 ## Log
 
@@ -180,4 +180,4 @@ alignment guides touch neither the dimension model nor the canvas.
 | 3 | `adbfe68` | canvas and window: placed dimensions, selection, drag, delete, the Acotar tool, alignment guides, commands, strings, automatic dimensions removed, README (T5, T6, T7, T9) |
 | 4 | `d0a3f0c` | what the verification round corrected: honest drop reporting, no silent carry-over across a shape change, midpoint references, guide-locked dimension lines |
 | 5 | `37be3c9` | snap family switches with their own persisted buttons (T10, S13), and one reference per click in the dimension tool (T11, S2) |
-| 6 | next commit | grouped ribbon with the snap switches in the status bar (T12, S14) and `Esc` as the command canceller (T13, S15) |
+| 6 | `0a0b4a3` | grouped ribbon with the snap switches in the status bar (T12, S14) and `Esc` as the command canceller (T13, S15) |
