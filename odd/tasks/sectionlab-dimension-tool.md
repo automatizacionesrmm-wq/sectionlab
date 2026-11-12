@@ -118,6 +118,15 @@ tool the user wields, like in a CAD program.
   dimension line ignored the guides and lost them under ortho. Anchors now come from the point
   the snaps and guides lock, and the dimension line is locked the same way.
 
+- **L6** (delivery, on the user's instruction «hagale usted mismos comit push y merch de esta
+  nueva version que me quede listo para actualizar»): version bumped to 0.3.0 in
+  `pyproject.toml`, `src/sectionlab/__init__.py` and `uv.lock`; merged into `main` as `61f65a7`
+  with the version bump `b0ae64f`; the Windows build (`windows-build` run 43143895665) passed
+  the frozen self-test; release `v0.3.0` carries `SectionLab-0.3.0-code.zip` (76 465 bytes) and
+  `SectionLab-0.3.0-setup.exe` (75 331 601 bytes). The application's own updater fetched that
+  release, downloaded the code archive and matched its SHA-256, so an installed 0.2.4 sees 0.3.0
+  as newer and can update from inside the window.
+
 ## Slices
 
 Review boundaries, in commit order. Slice 1 already landed; it is kept apart because the
