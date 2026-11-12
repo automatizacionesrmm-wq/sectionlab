@@ -32,6 +32,15 @@ _PRIORITY = {
     SnapKind.PERPENDICULAR: 4,
 }
 
+SNAP_KINDS: tuple[SnapKind, ...] = (
+    SnapKind.ENDPOINT,
+    SnapKind.MIDPOINT,
+    SnapKind.CENTER,
+    SnapKind.INTERSECTION,
+    SnapKind.PERPENDICULAR,
+)
+"""The families the interface offers as buttons, in the order it offers them (spec S13)."""
+
 
 @dataclass(frozen=True)
 class Snap:
@@ -126,10 +135,23 @@ def candidates(contours: Sequence[Contour], anchors: Iterable[Point] = ()) -> li
     return found
 
 
-def find_snap(target: Point, candidates: Sequence[Snap], tolerance: float) -> Snap | None:
-    """Nearest candidate within `tolerance`, preferring endpoints on a distance tie."""
+def find_snap(
+    target: Point,
+    candidates: Sequence[Snap],
+    tolerance: float,
+    enabled: Iterable[SnapKind] | None = None,
+) -> Snap | None:
+    """Nearest candidate within `tolerance`, preferring endpoints on a distance tie.
+
+    `enabled` is the set of families the user left switched on; a disabled family is not a
+    weaker candidate, it is not a candidate at all, so the cursor falls through to the next
+    enabled one (spec S13). Passing no `enabled` set considers every family.
+    """
+    allowed = None if enabled is None else frozenset(enabled)
     best: Snap | None = None
     for candidate in candidates:
+        if allowed is not None and candidate.kind not in allowed:
+            continue
         distance = math.hypot(candidate.point.x - target.x, candidate.point.y - target.y)
         if distance > tolerance:
             continue

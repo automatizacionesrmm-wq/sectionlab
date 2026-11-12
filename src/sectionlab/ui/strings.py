@@ -130,11 +130,18 @@ UI: dict[str, str] = {
     "dimension_tool_tip": (
         "Clic en una referencia y luego en otra; el tercer clic coloca la cota (Esc cancela)"
     ),
-    "dimension_tool_first": "Acotar: elige el primer punto o una línea",
+    "dimension_tool_first": "Acotar: elige el primer punto",
     "dimension_tool_second": "Acotar: elige el segundo punto",
     "dimension_tool_place": "Acotar: mueve el cursor y haz clic para colocar la cota",
     "guides": "Líneas de referencia",
     "guides_tip": "Muestra cuándo el cursor comparte la X o la Y con un vértice o un punto medio",
+    "snap_endpoint": "Extremo",
+    "snap_midpoint": "Punto medio",
+    "snap_center": "Centro",
+    "snap_intersection": "Intersección",
+    "snap_perpendicular": "Perpendicular",
+    "snap_toggle_tip": "Activa o desactiva este enganche",
+    "snap_none": "Todos los enganches están desactivados",
     "dimensions_hint": "Doble clic sobre una cota para cambiarla",
     "segment_selected_hint": (
         "Línea seleccionada: acótala con la herramienta Acotar para escribir su largo"
@@ -225,6 +232,11 @@ UI: dict[str, str] = {
     "short_ortho": "Orto",
     "short_measure": "Acotar",
     "short_snap": "Guías",
+    "short_snap_endpoint": "Extremo",
+    "short_snap_midpoint": "Medio",
+    "short_snap_center": "Centro",
+    "short_snap_intersection": "Cruces",
+    "short_snap_perpendicular": "Perpend.",
     "short_zoom_in": "Acercar",
     "short_zoom_out": "Alejar",
     "short_fit": "Ajustar",

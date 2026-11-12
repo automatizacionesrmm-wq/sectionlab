@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtCore import QSettings
 
 from sectionlab.core.precision import DEFAULT_DECIMALS, MAX_DECIMALS, MIN_DECIMALS
+from sectionlab.core.snap import SNAP_KINDS, SnapKind
 from sectionlab.core.templates import TemplateKind, default_params
 from sectionlab.core.units import Unit
 from sectionlab.ui import strings, settings as settings_module
@@ -147,3 +148,30 @@ def test_the_settings_dialog_shows_the_running_version(qtbot) -> None:
     label = dialog.findChild(QLabel, "settings_version")
     assert label is not None
     assert label.text() == f"{strings.label_for('version_label')} {__version__}"
+
+
+def test_snaps_are_all_on_until_the_user_turns_one_off(isolated_store) -> None:
+    assert load_settings().snaps == SNAP_KINDS
+
+
+def test_snap_state_survives_a_round_trip(isolated_store) -> None:
+    saved = AppSettings(snaps=(SnapKind.ENDPOINT, SnapKind.CENTER))
+    save_settings(saved)
+    assert load_settings().snaps == (SnapKind.ENDPOINT, SnapKind.CENTER)
+
+
+def test_turning_every_snap_off_is_remembered_and_not_reset(isolated_store) -> None:
+    save_settings(AppSettings(snaps=()))
+    assert load_settings().snaps == ()
+
+
+def test_unknown_snap_names_are_ignored_and_order_is_canonical(isolated_store) -> None:
+    store = QSettings(settings_module.ORGANIZATION, settings_module.APPLICATION)
+    store.setValue("snaps", "PERPENDICULAR,NONSENSE,ENDPOINT")
+    assert load_settings().snaps == (SnapKind.ENDPOINT, SnapKind.PERPENDICULAR)
+
+
+def test_the_settings_dialog_keeps_the_snap_choice(qtbot) -> None:
+    dialog = SettingsDialog(AppSettings(snaps=(SnapKind.MIDPOINT,)))
+    qtbot.addWidget(dialog)
+    assert dialog.values().snaps == (SnapKind.MIDPOINT,)

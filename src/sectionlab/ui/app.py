@@ -43,6 +43,7 @@ import sectionlab
 from sectionlab import __version__
 from sectionlab.core.engine import InvalidSectionError, SectionProperties, calculate
 from sectionlab.core.model import Contour, Section
+from sectionlab.core.snap import SNAP_KINDS, SnapKind
 from sectionlab.core.templates import TemplateKind, TemplateParameterError, build_section
 from sectionlab.core.units import Unit
 from sectionlab.core.update import (
@@ -69,6 +70,15 @@ from sectionlab.ui.template_panel import TemplatePanel
 from sectionlab.ui.theme import Theme, apply_theme, tokens
 from sectionlab.ui.updater import UpdateBanner, UpdateChecker, UpdateDownloader
 from sectionlab.ui.vertex_table import VertexTable
+
+SNAP_ICON_NAMES: dict[SnapKind, str] = {
+    SnapKind.ENDPOINT: "snap_endpoint",
+    SnapKind.MIDPOINT: "snap_midpoint",
+    SnapKind.CENTER: "snap_center",
+    SnapKind.INTERSECTION: "snap_intersection",
+    SnapKind.PERPENDICULAR: "snap_perpendicular",
+}
+"""Icon and label key of each snap family, in the order the toolbar shows it (spec S13)."""
 
 APP_NAME = strings.UI["window_title"]
 WINDOW_TITLE = f"{APP_NAME} {__version__}"
@@ -488,6 +498,21 @@ class MainWindow(QMainWindow):
         self.action_guides.setStatusTip(strings.label_for("guides_tip"))
         self.action_guides.toggled.connect(self.set_guides_visible)
 
+        # One button per snap family, on or off like an OSNAP toolbar (spec S13).
+        self._snap_actions: dict[SnapKind, QAction] = {}
+        self._snap_pairs: list[tuple[QAction, str]] = []
+        for kind, name in SNAP_ICON_NAMES.items():
+            label = strings.label_for(name)
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(kind in self._settings.snaps)
+            action.setToolTip(label)
+            action.setStatusTip(f"{label}: {strings.label_for('snap_toggle_tip')}")
+            action.toggled.connect(self._on_snap_toggled)
+            self._snap_actions[kind] = action
+            self._snap_pairs.append((action, name))
+        self.canvas.set_enabled_snaps(self._settings.snaps)
+
         self.action_dimensions = QAction(strings.label_for("dimensions"), self)
         self.action_dimensions.setCheckable(True)
         self.action_dimensions.setChecked(True)
@@ -570,39 +595,31 @@ class MainWindow(QMainWindow):
         toolbar = self.findChild(QToolBar, "main_toolbar")
         if toolbar is None:
             return
-        pairs = [
-            (self.action_calculate, "calculate"),
-            (self.action_open, "open"),
-            (self.action_save, "save"),
-            (self.action_export, "csv"),
-            (self.action_undo, "undo"),
-            (self.action_redo, "redo"),
-            (self.action_insert_vertex, "insert"),
-            (self.action_delete_vertex, "delete"),
-            (self.action_ortho, "ortho"),
-            (self.action_dimension_tool, "measure"),
-            (self.action_guides, "snap"),
-            (self.action_zoom_in, "zoom_in"),
-            (self.action_zoom_out, "zoom_out"),
-            (self.action_fit, "fit"),
-            (self.action_theme, "theme"),
-            (self.action_settings, "settings"),
-        ]
+        groups = (
+            [(self.action_calculate, "calculate")],
+            [(self.action_open, "open"), (self.action_save, "save"), (self.action_export, "csv")],
+            [(self.action_undo, "undo"), (self.action_redo, "redo")],
+            [(self.action_insert_vertex, "insert"), (self.action_delete_vertex, "delete")],
+            [
+                (self.action_ortho, "ortho"),
+                (self.action_dimension_tool, "measure"),
+                (self.action_guides, "snap"),
+            ],
+            list(self._snap_pairs),
+            [
+                (self.action_zoom_in, "zoom_in"),
+                (self.action_zoom_out, "zoom_out"),
+                (self.action_fit, "fit"),
+            ],
+            [(self.action_theme, "theme"), (self.action_settings, "settings")],
+        )
+        pairs = [pair for group in groups for pair in group]
         self._icon_targets = list(pairs)
         for action in list(toolbar.actions()):
             toolbar.removeAction(action)
         toolbar.setIconSize(QSize(20, 20))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         toolbar.setMovable(False)
-        groups = (
-            pairs[0:1],
-            pairs[1:4],
-            pairs[4:6],
-            pairs[6:9],
-            pairs[9:11],
-            pairs[11:14],
-            pairs[14:16],
-        )
         for index, group in enumerate(groups):
             if index:
                 toolbar.addSeparator()
@@ -832,6 +849,31 @@ class MainWindow(QMainWindow):
         if self.action_guides.isChecked() != visible:
             self.action_guides.setChecked(visible)
 
+    def set_enabled_snaps(self, kinds) -> None:
+        """Switch snap families on or off, buttons and canvas kept in step (spec S13)."""
+        chosen = tuple(kind for kind in SNAP_KINDS if kind in set(kinds))
+        self.canvas.set_enabled_snaps(chosen)
+        for kind, action in self._snap_actions.items():
+            if action.isChecked() != (kind in chosen):
+                action.blockSignals(True)
+                action.setChecked(kind in chosen)
+                action.blockSignals(False)
+        if self._interactive:
+            self._settings = replace(self._settings, snaps=chosen)
+            save_settings(self._settings)
+        if not chosen:
+            self._set_message(strings.label_for("snap_none"))
+
+    def enabled_snaps(self) -> tuple[SnapKind, ...]:
+        return tuple(kind for kind in SNAP_KINDS if kind in self.canvas.enabled_snaps())
+
+    def snap_actions(self) -> dict[SnapKind, QAction]:
+        return dict(self._snap_actions)
+
+    def _on_snap_toggled(self) -> None:
+        """Read the toggled button and push the whole set, so one place owns the state."""
+        self.set_enabled_snaps(tuple(kind for kind, action in self._snap_actions.items() if action.isChecked()))
+
     def guides_visible(self) -> bool:
         return self.canvas.guides_visible()
 
@@ -949,6 +991,7 @@ class MainWindow(QMainWindow):
             self.set_unit(self._settings.unit)
             self.set_decimals(self._settings.decimals)
             self.set_theme(self._settings.theme)
+            self.set_enabled_snaps(self._settings.snaps)
 
     # ------------------------------------------------------------------ internals
 

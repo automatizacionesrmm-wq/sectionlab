@@ -53,6 +53,7 @@ from sectionlab.core.sketch import SketchError, set_measure
 from sectionlab.core.snap import (
     GUIDE_X,
     GUIDE_Y,
+    SNAP_KINDS,
     SnapKind,
     alignments,
     apply_alignment,
@@ -280,6 +281,7 @@ class CanvasView(QGraphicsView):
         self._tool_anchors: list[Anchor] = []
         self._guides_visible = True
         self._guides: list = []
+        self._enabled_snaps: frozenset[SnapKind] = frozenset(SNAP_KINDS)
         self._cursor_locked: Point | None = None
         self._cursor_place: Point | None = None
         self._pan_origin: QPoint | None = None
@@ -305,6 +307,14 @@ class CanvasView(QGraphicsView):
 
     def set_ortho(self, enabled: bool) -> None:
         self._ortho = enabled
+
+    def set_enabled_snaps(self, kinds) -> None:
+        """Choose which snap families the cursor may use; an empty set disables snapping (S13)."""
+        self._enabled_snaps = frozenset(kinds)
+        self.viewport().update()
+
+    def enabled_snaps(self) -> frozenset[SnapKind]:
+        return self._enabled_snaps
 
     def is_ortho(self) -> bool:
         return self._ortho
@@ -662,7 +672,7 @@ class CanvasView(QGraphicsView):
         tolerance = SNAP_TOLERANCE_PX / self.pixels_per_mm()
         contours = [c for c in (self._section.outer, self._section.inner) if c and c.points]
         found_candidates = candidates(contours)
-        found = find_snap(model, found_candidates, tolerance)
+        found = find_snap(model, found_candidates, tolerance, enabled=self._enabled_snaps)
         if found is not None:
             self._guides = []
             self._cursor_locked = found.point
@@ -1095,13 +1105,12 @@ class CanvasView(QGraphicsView):
         points = self._ring()
         index = segment[1]
         parameter = self._edge_parameter(index, model)
-        if not self._tool_anchors and parameter != 0.5:
-            # A click on the body of an edge measures that whole edge (spec S2); the edge
-            # midpoint is a reference of its own, so any two midpoints can be measured (S4).
-            return (
-                Anchor(ANCHOR_VERTEX, index),
-                Anchor(ANCHOR_VERTEX, (index + 1) % len(points)),
-            )
+        if parameter <= 0.0:
+            return (Anchor(ANCHOR_VERTEX, index),)
+        if parameter >= 1.0:
+            return (Anchor(ANCHOR_VERTEX, (index + 1) % len(points)),)
+        # One reference per click, the way a CAD picks them: no click ever takes a whole edge,
+        # so the user chooses both extremes instead of accepting the line the pointer landed on.
         return (Anchor(ANCHOR_EDGE, index, parameter),)
 
     def _edge_parameter(self, index: int, point: Point) -> float:

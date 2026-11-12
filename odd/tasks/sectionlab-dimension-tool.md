@@ -11,16 +11,16 @@ tool the user wields, like in a CAD program.
   keeps toggling visibility, but now over the dimensions the user created. Quoted requirement:
   «no se que se le ponga cota a todo solo lo que yo acoto».
 - **S2 Dimension tool.** A toolbar action (with its shortcut) arms a dimension mode: the first
-  click fixes the first reference, the second click fixes the second reference — or a single
-  click on a segment measures that segment's length — and the dimension line follows the
-  cursor until the third click places it. `Esc` cancels the mode. Reference points are
-  acquired with the existing snaps: the point a snap or an alignment guide locks is the point
-  the reference is taken from, so a click near a vertex takes that vertex, a click on an edge
+  click fixes the first reference, the second click fixes the second reference, and the dimension
+  line follows the cursor until the third click places it. `Esc` cancels the mode. Every click
+  takes **one** reference: a click near an extreme takes that extreme, a click on an edge
   midpoint takes that midpoint, and a click anywhere else on an edge takes the perpendicular
-  foot there; the status bar names the snap that is being used. Anchors are durable (a vertex
-  or a point at parameter `t` along an edge), so a locked point that is neither — a contour
-  centre — is not available as a reference in this delivery. Quoted requirement: «debemos
-  tener una herramienta de acotado como las de CAD».
+  foot there — the tool never accepts a whole edge on the user's behalf. Reference points are
+  acquired through the snaps and the alignment guides, so a family the user switched off is not
+  used, and the status bar names the snap that is being used. Anchors are durable (a vertex or a
+  point at parameter `t` along an edge), so a locked point that is neither — a contour centre —
+  is not available as a reference in this delivery. Quoted requirement: «debemos tener una
+  herramienta de acotado como las de CAD».
 - **S3 Three kinds of dimension in this delivery.** Segment length (axis-aligned segment),
   horizontal distance between two points, vertical distance between two points. A horizontal
   or vertical dimension measures the projection of the two references on that axis. Quoted
@@ -66,6 +66,13 @@ tool the user wields, like in a CAD program.
   only, because a guide on the fixed axis would contradict ortho. Guides are decoration over
   the geometry: they never move a vertex and never take part in undo. Quoted requirement: «otra cosa que quiero tener es lo de los cad que haga como
   las lineas de referencia con respecto a los puntos como para saber que estoy alineado».
+- **S13 Snap families have their own switches.** Each snap family — endpoint, midpoint, centre,
+  intersection, perpendicular foot — has its own checkable button in the toolbar, on by default,
+  and the choice is remembered between runs. A family that is switched off is not a weaker
+  candidate: the cursor falls through to the next enabled one, and with every family off there
+  is no snapping at all (the alignment guides are a separate aid and keep working). Quoted
+  requirement: «la parte de los snad no tiene botones para activar y desactivar como tienen los
+  CAD».
 
 ## Tasks
 
@@ -80,6 +87,8 @@ tool the user wields, like in a CAD program.
 | T7 | App wiring, strings, docs, auto-dimension removal | S1, S11 | ui + docs | `adbfe68` |
 | T8 | Alignment guides: pure guide computation and cursor lock | S12 | core/snap, test-first | `91a1849` |
 | T9 | Canvas paints the guides, locks the cursor, View toggle | S12 | ui | `adbfe68` |
+| T10 | Snap family switches: core filter, canvas state, persisted toolbar buttons | S13 | core + ui, test-first | pending |
+| T11 | One reference per click in the dimension tool | S2, S4 | ui, test-first | pending |
 
 ## Log
 
@@ -118,6 +127,15 @@ tool the user wields, like in a CAD program.
   dimension line ignored the guides and lost them under ortho. Anchors now come from the point
   the snaps and guides lock, and the dimension line is locked the same way.
 
+- **L7** (user, verbatim):
+  «bien ahora la parte de los snad no tiene botones para activar y desactivar como tienen los
+  CAD aca tengo varios CAD libres que podermos revisar para poder aplicar eso y lo de las cotas
+  revisalos»
+  Asked which families get a button: «se abre y yo puedo activad y desactivar a mi gusto como
+  se hace en CAD»; where the buttons live: a group in the main toolbar; whether the state is
+  remembered: yes. About the dimensions: «es que el tipo de cota que me creaste es sleccionando
+  una linea no seleccioando los extremos a acotar» — the whole-edge click of the first delivery
+  is gone and every click takes one reference (T11).
 - **L6** (delivery, on the user's instruction «hagale usted mismos comit push y merch de esta
   nueva version que me quede listo para actualizar»): version bumped to 0.3.0 in
   `pyproject.toml`, `src/sectionlab/__init__.py` and `uv.lock`; merged into `main` as `61f65a7`

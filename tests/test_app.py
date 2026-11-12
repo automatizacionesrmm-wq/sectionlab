@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QDockWidget, QMessageBox
 
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.precision import format_full
+from sectionlab.core.snap import SNAP_KINDS, SnapKind
 from sectionlab.core.templates import TemplateKind
 from sectionlab.core.units import Unit
 from sectionlab.ui import strings
@@ -253,7 +254,7 @@ def test_the_toolbar_offers_icons_for_every_action(window: MainWindow) -> None:
     toolbar = window.findChild(QToolBar, "main_toolbar")
     assert toolbar is not None
     actions = [action for action in toolbar.actions() if not action.isSeparator()]
-    assert len(actions) == 16
+    assert len(actions) == 21  # 16 commands plus one button per snap family (spec S13)
     for action in actions:
         assert not action.icon().isNull(), action.text()
 
@@ -989,3 +990,50 @@ def test_rebuilding_the_same_template_keeps_its_dimensions(window: MainWindow) -
     dimension = window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, HORIZONTAL, offset_mm=20.0)
     assert window.apply_template(TemplateKind.RECTANGLE.value, {"b": 300.0, "h": 80.0}) is True
     assert [item.id for item in window.canvas.dimensions()] == [dimension.id]
+
+
+# ------------------------------------------------- the snap buttons (spec S13)
+
+
+@pytest.fixture()
+def snap_store(monkeypatch) -> None:
+    """Keep the persisted snap state out of the developer's own preferences."""
+    from PySide6.QtCore import QSettings
+
+    from sectionlab.ui import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "ORGANIZATION", "SectionLabTests")
+    monkeypatch.setattr(settings_module, "APPLICATION", "snaps")
+    QSettings("SectionLabTests", "snaps").clear()
+
+
+def test_every_snap_family_has_a_button_and_they_start_on(window: MainWindow) -> None:
+    actions = window.snap_actions()
+    assert list(actions) == list(SNAP_KINDS)
+    assert all(action.isChecked() for action in actions.values())
+    assert all(action.isCheckable() for action in actions.values())
+    assert window.enabled_snaps() == SNAP_KINDS
+
+
+def test_a_snap_button_switches_only_its_own_family_off(window: MainWindow) -> None:
+    window.snap_actions()[SnapKind.MIDPOINT].setChecked(False)
+    assert SnapKind.MIDPOINT not in window.enabled_snaps()
+    assert set(window.enabled_snaps()) == set(SNAP_KINDS) - {SnapKind.MIDPOINT}
+    assert window.canvas.enabled_snaps() == frozenset(SNAP_KINDS) - {SnapKind.MIDPOINT}
+    window.snap_actions()[SnapKind.MIDPOINT].setChecked(True)
+    assert window.enabled_snaps() == SNAP_KINDS
+
+
+def test_the_snap_state_is_remembered_between_runs(snap_store) -> None:
+    from sectionlab.ui.settings import load_settings
+
+    first = MainWindow(AppSettings(), interactive=True)
+    first.snap_actions()[SnapKind.CENTER].setChecked(False)
+    first.deleteLater()
+    assert SnapKind.CENTER not in load_settings().snaps
+
+    second = MainWindow(load_settings(), interactive=True)
+    assert second.snap_actions()[SnapKind.CENTER].isChecked() is False
+    assert second.snap_actions()[SnapKind.ENDPOINT].isChecked() is True
+    assert SnapKind.CENTER not in second.enabled_snaps()
+    second.deleteLater()

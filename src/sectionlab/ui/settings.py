@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from sectionlab import __version__
 from sectionlab.core.precision import DEFAULT_DECIMALS, MAX_DECIMALS, MIN_DECIMALS
+from sectionlab.core.snap import SNAP_KINDS, SnapKind
 from sectionlab.core.units import Unit
 from sectionlab.ui import strings
 from sectionlab.ui.theme import Theme
@@ -42,6 +43,7 @@ class AppSettings:
     unit: Unit = Unit.MM
     decimals: int = DEFAULT_DECIMALS
     theme: Theme = Theme.DARK
+    snaps: tuple[SnapKind, ...] = SNAP_KINDS
 
 
 def load_settings() -> AppSettings:
@@ -60,7 +62,19 @@ def load_settings() -> AppSettings:
         theme = Theme(str(store.value("theme", Theme.DARK.value)))
     except ValueError:
         theme = Theme.DARK
-    return AppSettings(unit=unit, decimals=decimals, theme=theme)
+    return AppSettings(unit=unit, decimals=decimals, theme=theme, snaps=load_snaps(store))
+
+
+def load_snaps(store: QSettings) -> tuple[SnapKind, ...]:
+    """The snap families the user left switched on (spec S13).
+
+    An unset key keeps every family on, so a fresh install snaps like a CAD; an empty value is
+    a deliberate choice and stays empty, which is how snapping gets switched off entirely.
+    """
+    if not store.contains("snaps"):
+        return SNAP_KINDS
+    stored = {part.strip() for part in str(store.value("snaps", "") or "").split(",")}
+    return tuple(kind for kind in SNAP_KINDS if kind.value in stored)
 
 
 def save_settings(settings: AppSettings) -> None:
@@ -68,6 +82,7 @@ def save_settings(settings: AppSettings) -> None:
     store.setValue("unit", settings.unit.value)
     store.setValue("decimals", settings.decimals)
     store.setValue("theme", settings.theme.value)
+    store.setValue("snaps", ",".join(kind.value for kind in settings.snaps))
 
 
 class SettingsDialog(QDialog):
@@ -76,6 +91,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(strings.label_for("settings"))
+        self._settings = settings
         self._unit = QComboBox(self)
         for unit in Unit:
             self._unit.addItem(unit_label(unit), unit.value)
@@ -115,7 +131,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     def values(self) -> AppSettings:
-        return AppSettings(
+        return replace(
+            self._settings,
             unit=Unit(self._unit.currentData()),
             decimals=self._decimals.value(),
             theme=Theme(self._theme.currentData()),

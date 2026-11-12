@@ -56,12 +56,11 @@ PDF/PNG reports, **DXF import/export**.
    A template section belongs to its parameters, so its vertices stay locked. When you want to
    adjust it by hand, **Convertir a geometría libre** keeps the contour exactly as drawn and
    hands you the vertices; **Deshacer** puts the template back.
-2. Dimensions are yours to place. Press **Acotar** (`D`) and pick what you want to measure:
-   one click on the body of an edge measures that edge, or two clicks on references — a vertex,
-   the middle of an edge (click the edge on its midpoint snap), the foot of a click on an edge —
-   measure the distance between them, including midpoint to midpoint. The dimension line
-   follows the cursor and the third click places it, as far from the geometry as you like; drag
-   its number later to move it, and `Supr` deletes the selected one. Nothing is
+2. Dimensions are yours to place. Press **Acotar** (`D`) and pick the two references to
+   measure — a vertex, the middle of an edge, or the foot of a click on an edge — and the third
+   click places the line as far from the geometry as you like. The tool never accepts a whole
+   line for you: a click near an extreme takes that extreme, so you choose both ends. Drag the
+   number later to move it, and `Supr` deletes the selected one. Nothing is
    dimensioned that you did not dimension: the drawing starts clean, and **Ver → Cotas**
    (`Ctrl+D`) only hides and shows what you placed.
    Double-click a dimension, type the value and press `Enter`: the side you picked second moves
@@ -74,6 +73,10 @@ PDF/PNG reports, **DXF import/export**.
    appear when the cursor shares an x or a y with an existing vertex, midpoint or centre, and
    lock the point to that coordinate; with ortho on they align the axis ortho leaves free.
    **Ver → Líneas de referencia** (`Ctrl+L`) turns them off.
+   Every snap family has its own button in the toolbar — **Extremo**, **Punto medio**, **Centro**,
+   **Intersección** and **Perpendicular** — and each one switches on and off on its own, like the
+   object-snap bar of a CAD. The choice is remembered between runs, so switch off the families
+   you do not want the cursor to catch.
 3. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The
    view has no scrollbars; **Acercar**, **Alejar** and **Ajustar** are on the toolbar.

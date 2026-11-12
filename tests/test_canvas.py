@@ -812,21 +812,62 @@ def test_deleting_the_anchored_vertex_drops_the_dimension_and_says_so(canvas: Ca
 # ------------------------------------------------------------ the dimension tool (S2)
 
 
-def test_a_click_on_an_edge_measures_that_edge_in_two_clicks(canvas: CanvasView) -> None:
+def test_a_click_on_an_edge_takes_a_point_not_the_whole_edge(canvas: CanvasView) -> None:
+    """The user picks both extremes instead of accepting the line the pointer landed on."""
     canvas.set_section(free_section())
-    canvas.fit_to_content()
+    canvas.reset_view()
     assert canvas.begin_dimension_tool() is True
     edge = canvas.mapFromScene(QPointF(25.0, 0.0))
     canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, edge))
+    assert len(canvas.pending_anchors()) == 1
+    assert canvas.pending_anchors()[0].kind == ANCHOR_EDGE
+    second = canvas.mapFromScene(QPointF(75.0, 0.0))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, second))
     assert len(canvas.pending_anchors()) == 2
+    outside = canvas.mapFromScene(QPointF(50.0, 25.0))
+    canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, outside))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, outside))
+    placed = canvas.dimensions()[0]
+    assert (placed.first.kind, placed.second.kind) == (ANCHOR_EDGE, ANCHOR_EDGE)
+    assert canvas._dimension_text(placed) == "50.00"
+    assert canvas.pending_anchors() == ()
+
+
+def test_the_two_extremes_of_an_edge_make_a_segment_dimension(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.fit_to_content()
+    assert canvas.begin_dimension_tool() is True
+    for corner in ((0.0, 0.0), (100.0, 0.0)):
+        point = canvas.mapFromScene(QPointF(*corner))
+        canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, point))
     outside = canvas.mapFromScene(QPointF(50.0, -25.0))
     canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, outside))
     canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, outside))
-    assert len(canvas.dimensions()) == 1
     dimension = canvas.dimensions()[0]
     assert dimension.kind == SEGMENT_LENGTH
     assert dimension.offset_mm == pytest.approx(-25.0, abs=0.5)
-    assert canvas.pending_anchors() == ()
+    assert canvas._dimension_text(dimension) == "100.00"
+
+
+def test_a_disabled_snap_family_leaves_the_cursor_alone(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    canvas.set_guides_visible(False)  # guides are their own aid, not a snap family
+    corner = canvas.mapToScene(canvas.mapFromScene(QPointF(1.2, -1.0)))
+    assert canvas.snapped_point(corner)[1] is not None
+    canvas.set_enabled_snaps([SnapKind.MIDPOINT])
+    point, kind = canvas.snapped_point(corner)
+    assert kind is None
+    assert point == Point(corner.x(), -corner.y())  # the raw cursor, not a candidate
+
+
+def test_no_enabled_snap_family_turns_snapping_off(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    canvas.set_enabled_snaps([])
+    assert canvas.enabled_snaps() == frozenset()
+    corner = canvas.mapToScene(canvas.mapFromScene(QPointF(0.4, -0.4)))
+    assert canvas.snapped_point(corner)[1] is None
 
 
 def test_the_midpoints_of_two_edges_can_be_measured(canvas: CanvasView) -> None:
