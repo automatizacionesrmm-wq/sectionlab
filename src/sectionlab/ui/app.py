@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._build_actions()
         self._decorate_toolbar()
+        self._build_snap_strip()
         self._apply_theme()
 
         self.canvas.sectionChanged.connect(self._on_section_changed)
@@ -223,6 +224,7 @@ class MainWindow(QMainWindow):
         self.canvas.dimensionToolChanged.connect(self._on_dimension_tool_changed)
         self.canvas.dimensionStepChanged.connect(self._on_dimension_step)
         self.canvas.guidesChanged.connect(self._on_guides_changed)
+        self.canvas.drawingChanged.connect(self._on_drawing_changed)
         self.canvas.dimensionsDropped.connect(self._on_dimensions_dropped)
         self.canvas.dimensionEdited.connect(self._on_dimension_edited)
         self.template_panel.applied.connect(self.apply_template)
@@ -591,40 +593,133 @@ class MainWindow(QMainWindow):
         help_menu.addAction(self.action_about)
 
     def _decorate_toolbar(self) -> None:
-        """Replace the flat toolbar with icon groups and a primary calculate button."""
+        """Group the commands so the ribbon stays a dozen icons wide (spec S14).
+
+        File and vertex operations become one button with a menu each: the ribbon keeps the
+        commands that are used while drawing and pushes the rest one click away.
+        """
         toolbar = self.findChild(QToolBar, "main_toolbar")
         if toolbar is None:
             return
-        groups = (
-            [(self.action_calculate, "calculate")],
-            [(self.action_open, "open"), (self.action_save, "save"), (self.action_export, "csv")],
-            [(self.action_undo, "undo"), (self.action_redo, "redo")],
-            [(self.action_insert_vertex, "insert"), (self.action_delete_vertex, "delete")],
-            [
-                (self.action_ortho, "ortho"),
-                (self.action_dimension_tool, "measure"),
-                (self.action_guides, "snap"),
-            ],
-            list(self._snap_pairs),
-            [
-                (self.action_zoom_in, "zoom_in"),
-                (self.action_zoom_out, "zoom_out"),
-                (self.action_fit, "fit"),
-            ],
-            [(self.action_theme, "theme"), (self.action_settings, "settings")],
+        file_menu = QMenu(self)
+        for action in (self.action_open, self.action_save, self.action_export):
+            file_menu.addAction(action)
+        vertex_menu = QMenu(self)
+        for action in (self.action_insert_vertex, self.action_delete_vertex):
+            vertex_menu.addAction(action)
+
+        file_button = self._menu_button(toolbar, "open", "toolbar_file", file_menu)
+        vertex_button = self._menu_button(toolbar, "vertex", "toolbar_vertices", vertex_menu)
+        self._button_targets = [(file_button, "open"), (vertex_button, "vertex")]
+        self._icon_targets = [
+            (self.action_calculate, "calculate"),
+            (self.action_undo, "undo"),
+            (self.action_redo, "redo"),
+            (self.action_ortho, "ortho"),
+            (self.action_dimension_tool, "measure"),
+            (self.action_guides, "snap"),
+            (self.action_zoom_in, "zoom_in"),
+            (self.action_zoom_out, "zoom_out"),
+            (self.action_fit, "fit"),
+            (self.action_theme, "theme"),
+            (self.action_settings, "settings"),
+        ]
+        slots = (
+            [self.action_calculate],
+            [file_button],
+            [self.action_undo, self.action_redo],
+            [vertex_button],
+            [self.action_ortho, self.action_dimension_tool, self.action_guides],
+            [self.action_zoom_in, self.action_zoom_out, self.action_fit],
+            [self.action_theme, self.action_settings],
         )
-        pairs = [pair for group in groups for pair in group]
-        self._icon_targets = list(pairs)
         for action in list(toolbar.actions()):
             toolbar.removeAction(action)
         toolbar.setIconSize(QSize(20, 20))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         toolbar.setMovable(False)
-        for index, group in enumerate(groups):
+        for index, slot in enumerate(slots):
             if index:
                 toolbar.addSeparator()
-            for action, _ in group:
-                toolbar.addAction(action)
+            for entry in slot:
+                if isinstance(entry, QToolButton):
+                    toolbar.addWidget(entry)
+                else:
+                    toolbar.addAction(entry)
+
+    def _menu_button(self, parent, glyph: str, label_key: str, menu: QMenu) -> QToolButton:
+        """One button that opens a menu, so a whole group costs a single icon (spec S14)."""
+        button = QToolButton(parent)
+        button.setObjectName(f"toolbar_{glyph}")
+        button.setMenu(menu)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        button.setIconSize(QSize(20, 20))
+        button.setText(strings.label_for(label_key))
+        button.setToolTip(strings.label_for(label_key))
+        return button
+
+    def _build_snap_strip(self) -> None:
+        """The snap switches, small and icon-only at the right of the status bar (spec S13)."""
+        strip = QWidget(self)
+        strip.setObjectName("snap_strip")
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(3)
+        self._snap_buttons: dict[SnapKind, QToolButton] = {}
+        for kind, action in self._snap_actions.items():
+            name = SNAP_ICON_NAMES[kind]
+            button = QToolButton(strip)
+            button.setObjectName(f"status_{name}")
+            button.setDefaultAction(action)
+            button.setAutoRaise(True)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setIconSize(QSize(15, 15))
+            button.setFixedSize(QSize(22, 20))
+            layout.addWidget(button)
+            self._snap_buttons[kind] = button
+        self.statusBar().addPermanentWidget(strip)
+
+    def snap_buttons(self) -> dict[SnapKind, QToolButton]:
+        return dict(self._snap_buttons)
+
+    def active_command(self) -> str | None:
+        """The command running right now, if any (spec S15)."""
+        if self.canvas.is_placing_dimension():
+            return "dimension"
+        if self.canvas.is_drawing():
+            return "draw"
+        return None
+
+    def cancel_active_command(self) -> bool:
+        """`Esc`: leave the running command, then clear what is selected (spec S15).
+
+        Cad programs put command state above selection state, and Esc unwinds one level at a
+        time; an editor that owns the keyboard keeps its own Esc, so cancelling a typed value
+        never kills the command behind it.
+        """
+        command = self.active_command()
+        if command == "dimension":
+            self.set_dimension_tool(False)
+        elif command == "draw":
+            self.canvas.cancel_drawing()
+        elif (
+            self.canvas.selected_dimension() is not None
+            or self.canvas.selected_vertex() is not None
+            or self.canvas.selected_segment() is not None
+        ):
+            self.canvas.clear_selection()
+            return True
+        else:
+            return False
+        self._set_message(strings.label_for("command_cancelled"))
+        return True
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.key() == Qt.Key.Key_Escape and self.cancel_active_command():
+            event.accept()
+            return
+        super().keyPressEvent(event)
         button = toolbar.widgetForAction(self.action_calculate)
         if isinstance(button, QToolButton):
             button.setObjectName("primary")
@@ -663,6 +758,9 @@ class MainWindow(QMainWindow):
                 glyph = "light" if self._theme is Theme.DARK else "moon"
             action.setIcon(icon(glyph, colour, 20))
             action.setIconText(strings.label_for(f"short_{name}"))
+        self._refresh_snap_icons()
+        for button, glyph in self._button_targets:
+            button.setIcon(icon(glyph, palette["text_dim"], 20))
         for label, name in self._glyphs:
             label.setPixmap(icon(name, palette["text_faint"], 13).pixmap(13, 13))
         for closer in self._dock_closers:
@@ -863,6 +961,14 @@ class MainWindow(QMainWindow):
             save_settings(self._settings)
         if not chosen:
             self._set_message(strings.label_for("snap_none"))
+        self._refresh_snap_icons()
+
+    def _refresh_snap_icons(self) -> None:
+        """Repaint the status-bar switches: bright when on, faint when off (spec S13)."""
+        palette = tokens(self._theme)
+        for action, name in self._snap_pairs:
+            colour = palette["text"] if action.isChecked() else palette["text_faint"]
+            action.setIcon(icon(name, colour, 15))
 
     def enabled_snaps(self) -> tuple[SnapKind, ...]:
         return tuple(kind for kind in SNAP_KINDS if kind in self.canvas.enabled_snaps())

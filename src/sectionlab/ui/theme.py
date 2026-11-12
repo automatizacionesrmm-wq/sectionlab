@@ -222,6 +222,10 @@ QMainWindow::separator {{ background: {border}; width: 1px; height: 1px; }}
 QMainWindow::separator:hover {{ background: {accent}; }}
 QToolButton#dock_close {{ border: 0; background: transparent; padding: 2px; }}
 QToolButton#dock_close:hover {{ background: {danger_soft}; border-radius: 4px; }}
+/* The snap switches say on/off with the icon colour, so the pill stays out of the way. */
+#snap_strip QToolButton {{ border: 0; background: transparent; padding: 0; }}
+#snap_strip QToolButton:hover {{ background: {panel_high}; border-radius: 3px; }}
+#snap_strip QToolButton:checked {{ background: transparent; }}
 
 QScrollArea {{ border: 0; background: {panel}; }}
 QScrollBar:vertical {{ background: {panel}; width: 10px; margin: 0; }}

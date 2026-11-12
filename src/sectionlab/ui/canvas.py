@@ -1711,14 +1711,8 @@ class CanvasView(QGraphicsView):
             self.close_contour()
             event.accept()
             return
-        if key == Qt.Key.Key_Escape and self._tool_active:
-            self.cancel_dimension_tool()
-            event.accept()
-            return
-        if key == Qt.Key.Key_Escape and self.is_drawing():
-            self.cancel_drawing()
-            event.accept()
-            return
+        # `Esc` is not handled here: the command it cancels belongs to the window (spec S15),
+        # so leaving the key alone lets it travel up to the window that owns the command.
         if key == Qt.Key.Key_Delete and self._selected_dimension is not None:
             self.delete_dimension(self._selected_dimension)
             event.accept()
