@@ -10,6 +10,7 @@ from sectionlab.core.model import Contour, Point
 from sectionlab.core.snap import (
     GUIDE_X,
     GUIDE_Y,
+    SNAP_KINDS,
     Alignment,
     Snap,
     SnapKind,
@@ -317,3 +318,40 @@ def test_identical_candidates_still_pick_deterministically() -> None:
     first = alignments(found, Point(5, 5), 3.0)
     reversed_order = alignments(list(reversed(found)), Point(5, 5), 3.0)
     assert first == reversed_order
+
+
+# ------------------------------------------------- which snaps are on (spec S13)
+
+
+def rectangle() -> Contour:
+    return Contour(points=[Point(0, 0), Point(100, 0), Point(100, 100), Point(0, 100)])
+
+
+def test_the_offered_families_are_the_five_the_engine_produces() -> None:
+    assert SNAP_KINDS == (
+        SnapKind.ENDPOINT,
+        SnapKind.MIDPOINT,
+        SnapKind.CENTER,
+        SnapKind.INTERSECTION,
+        SnapKind.PERPENDICULAR,
+    )
+
+
+def test_a_disabled_family_does_not_snap() -> None:
+    found = candidates([rectangle()])
+    target = Point(50.2, 0.3)  # the middle of the bottom edge
+    assert find_snap(target, found, 5.0).kind is SnapKind.MIDPOINT
+    assert find_snap(target, found, 5.0, enabled=[SnapKind.ENDPOINT]) is None
+
+
+def test_the_closest_enabled_family_wins_over_a_closer_disabled_one() -> None:
+    found = candidates([rectangle()])
+    target = Point(0.2, 0.2)  # the corner, which is also where two edges meet
+    assert find_snap(target, found, 5.0).kind is SnapKind.ENDPOINT
+    assert find_snap(target, found, 5.0, enabled=[SnapKind.CENTER]) is None
+    assert find_snap(target, found, 5.0, enabled=[SnapKind.MIDPOINT]) is None
+
+
+def test_no_enabled_family_means_no_snap_at_all() -> None:
+    found = candidates([rectangle()])
+    assert find_snap(Point(0.2, 0.2), found, 5.0, enabled=[]) is None
