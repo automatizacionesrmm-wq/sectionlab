@@ -57,10 +57,11 @@ PDF/PNG reports, **DXF import/export**.
    adjust it by hand, **Convertir a geometría libre** keeps the contour exactly as drawn and
    hands you the vertices; **Deshacer** puts the template back.
 2. Dimensions are yours to place. Press **Acotar** (`D`) and pick what you want to measure:
-   one click on an edge measures that edge, or two clicks on references — a vertex, the middle
-   of an edge, any pair of points the snaps can reach — measure the distance between them. The
-   dimension line follows the cursor and the third click places it, as far from the geometry as
-   you like; drag its number later to move it, and `Supr` deletes the selected one. Nothing is
+   one click on the body of an edge measures that edge, or two clicks on references — a vertex,
+   the middle of an edge (click the edge on its midpoint snap), the foot of a click on an edge —
+   measure the distance between them, including midpoint to midpoint. The dimension line
+   follows the cursor and the third click places it, as far from the geometry as you like; drag
+   its number later to move it, and `Supr` deletes the selected one. Nothing is
    dimensioned that you did not dimension: the drawing starts clean, and **Ver → Cotas**
    (`Ctrl+D`) only hides and shows what you placed.
    Double-click a dimension, type the value and press `Enter`: the side you picked second moves
@@ -69,8 +70,9 @@ PDF/PNG reports, **DXF import/export**.
    single rule can satisfy — the closing edge, a slanted length, a distance two parameters
    share — is drawn dashed and reference-only, and double-clicking it explains why in the
    status bar.
-   While you place or drag points, dashed **alignment guides** appear when the cursor shares an
-   x or a y with an existing vertex, midpoint or centre, and lock the point to that coordinate;
+   While you place points, place a dimension line or drag a vertex, dashed **alignment guides**
+   appear when the cursor shares an x or a y with an existing vertex, midpoint or centre, and
+   lock the point to that coordinate; with ortho on they align the axis ortho leaves free.
    **Ver → Líneas de referencia** (`Ctrl+L`) turns them off.
 3. Move around the drawing like in a CAD program: the wheel zooms towards the cursor, the
    middle button drags the view, and a middle double click fits the section on screen. The

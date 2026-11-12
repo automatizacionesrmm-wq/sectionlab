@@ -365,6 +365,8 @@ _BUILDERS = {
 
 _PROBE_STEP_RATIO = 1e-3
 _SLOPE_TOLERANCE = 1e-6
+_PARAMETER_DECIMALS = 6
+"""A solved parameter is rounded here so the file keeps 300, not 300.00000000001137."""
 
 
 def _drivers(
@@ -435,7 +437,7 @@ def parameter_override(
     if abs(slope) <= _SLOPE_TOLERANCE:
         return None
     current = measure(build_section(kind, values).outer.points, dimension)
-    override = {key: values[key] + (target_mm - current) / slope}
+    override = {key: round(values[key] + (target_mm - current) / slope, _PARAMETER_DECIMALS)}
     try:
         rebuilt = build_section(kind, {**values, **override})
     except TemplateParameterError:

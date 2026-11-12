@@ -7,11 +7,13 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QWheelEvent
 
 from sectionlab.core.dimensions import (
+    ANCHOR_EDGE,
     ANCHOR_VERTEX,
     HORIZONTAL,
     SEGMENT_LENGTH,
     VERTICAL,
     Anchor,
+    Dimension,
 )
 from sectionlab.core.model import Contour, Point, Section
 from sectionlab.core.templates import TemplateKind, build_section
@@ -814,7 +816,7 @@ def test_a_click_on_an_edge_measures_that_edge_in_two_clicks(canvas: CanvasView)
     canvas.set_section(free_section())
     canvas.fit_to_content()
     assert canvas.begin_dimension_tool() is True
-    edge = canvas.mapFromScene(QPointF(50.0, 0.0))
+    edge = canvas.mapFromScene(QPointF(25.0, 0.0))
     canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, edge))
     assert len(canvas.pending_anchors()) == 2
     outside = canvas.mapFromScene(QPointF(50.0, -25.0))
@@ -825,6 +827,24 @@ def test_a_click_on_an_edge_measures_that_edge_in_two_clicks(canvas: CanvasView)
     assert dimension.kind == SEGMENT_LENGTH
     assert dimension.offset_mm == pytest.approx(-25.0, abs=0.5)
     assert canvas.pending_anchors() == ()
+
+
+def test_the_midpoints_of_two_edges_can_be_measured(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.fit_to_content()
+    assert canvas.begin_dimension_tool() is True
+    bottom = canvas.mapFromScene(QPointF(50.0, 0.0))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, bottom))
+    assert canvas.pending_anchors() == (Anchor(ANCHOR_EDGE, 0, 0.5),)
+    right = canvas.mapFromScene(QPointF(100.0, -50.0))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, right))
+    assert canvas.pending_anchors() == (Anchor(ANCHOR_EDGE, 0, 0.5), Anchor(ANCHOR_EDGE, 1, 0.5))
+    outside = canvas.mapFromScene(QPointF(70.0, 30.0))
+    canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, outside))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, outside))
+    placed = canvas.dimensions()[0]
+    assert (placed.first, placed.second) == (Anchor(ANCHOR_EDGE, 0, 0.5), Anchor(ANCHOR_EDGE, 1, 0.5))
+    assert canvas._dimension_text(placed) == "50.00"
 
 
 def test_two_vertices_make_a_distance_dimension(canvas: CanvasView) -> None:
@@ -967,3 +987,80 @@ def test_selecting_a_vertex_drops_the_picked_edge(qtbot) -> None:
     click_edge(canvas, 50.0, 0.0)
     canvas.select_vertex("outer", 2)
     assert canvas.selected_segment() is None
+
+
+# ------------------------------------------------- no false loss, no silent loss (S10)
+
+
+def test_deleting_a_dimension_does_not_announce_a_dropped_one(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    place_segment(canvas, 0)
+    dropped: list[int] = []
+    canvas.dimensionsDropped.connect(dropped.append)
+    canvas.delete_dimension(canvas.dimensions()[0].id)
+    assert canvas.dimensions() == []
+    assert dropped == []
+    canvas.undo_stack().undo()
+    canvas.undo_stack().redo()
+    assert dropped == []
+
+
+def test_replacing_the_section_drops_the_dimensions_it_carried(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    place_segment(canvas, 0)
+    dropped: list[int] = []
+    canvas.dimensionsDropped.connect(dropped.append)
+    canvas.set_section(
+        Section(outer=Contour(points=[Point(0, 0), Point(200, 0), Point(200, 10), Point(0, 10)]))
+    )
+    assert canvas.dimensions() == []
+    assert dropped == [1]
+
+
+def test_a_file_dimension_that_no_longer_fits_is_reported(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    dropped: list[int] = []
+    canvas.dimensionsDropped.connect(dropped.append)
+    canvas.set_dimensions(
+        [
+            Dimension(
+                id=1,
+                first=Anchor(ANCHOR_VERTEX, 0),
+                second=Anchor(ANCHOR_VERTEX, 9),
+                kind=SEGMENT_LENGTH,
+            )
+        ]
+    )
+    assert canvas.dimensions() == []
+    assert dropped == [1]
+
+
+# ------------------------------------------------- guides and the dimension line (S12)
+
+
+def test_the_guide_pulls_the_dimension_line_it_places(canvas: CanvasView) -> None:
+    canvas.set_section(free_section())
+    canvas.reset_view()
+    assert canvas.begin_dimension_tool() is True
+    start = canvas.mapFromScene(QPointF(0.0, 0.0))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, start))
+    end = canvas.mapFromScene(QPointF(100.0, 0.0))
+    canvas.mousePressEvent(mouse_event(QEvent.Type.MouseButtonPress, end))
+    # One millimetre above the measured edge: the y guide at 0 pulls the line onto it.
+    off = canvas.mapFromScene(QPointF(25.0, 1.0))
+    canvas.mouseMoveEvent(mouse_event(QEvent.Type.MouseMove, off))
+    pending = canvas.pending_dimension()
+    assert pending is not None
+    assert pending.offset_mm == pytest.approx(0.0, abs=1e-6)
+
+
+def test_guides_still_align_the_free_axis_while_ortho_is_on(canvas: CanvasView) -> None:
+    canvas.reset_view()
+    canvas.set_section(
+        Section(outer=Contour(points=[Point(100, 50), Point(0, 0)], closed=False))
+    )
+    canvas.set_ortho(True)
+    # Ortho keeps y at the last vertex (0); the free x is pulled onto the x of the other vertex.
+    locked, _ = canvas.snapped_point(canvas.mapToScene(canvas.mapFromScene(QPointF(100.5, -0.5))))
+    assert (locked.x, locked.y) == (pytest.approx(100.0), pytest.approx(0.0))
+    assert [guide.axis for guide in canvas.current_guides()] == ["x"]

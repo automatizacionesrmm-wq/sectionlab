@@ -714,7 +714,11 @@ class MainWindow(QMainWindow):
         # Refit only when the template itself changes: while a parameter is edited the view
         # must stay where the user put it.
         refit = self._template_kind != kind
-        self.canvas.set_section(section, fit=refit)
+        # The same template keeps its vertex order, so its dimensions still refer to it; a
+        # different template replaces the shape and its dimensions no longer mean anything.
+        before = len(self.canvas.dimensions())
+        self.canvas.set_section(section, fit=refit, keep_dimensions=not refit)
+        lost = before - len(self.canvas.dimensions())
         self.canvas.set_editable(False)
         self._template_kind = kind
         self._template_mode = True
@@ -723,7 +727,11 @@ class MainWindow(QMainWindow):
         if self.template_panel.kind() != kind:
             self.template_panel.set_kind(kind)
         self._path = None
-        self._set_message(f"{strings.label_for("applied")}: {strings.label_for(kind)}")
+        applied = f"{strings.label_for("applied")}: {strings.label_for(kind)}"
+        if lost:
+            key = "dimension_dropped" if lost == 1 else "dimensions_dropped"
+            applied = f"{applied} · {lost} {strings.label_for(key)}"
+        self._set_message(applied)
         self._last_error = None
         self._sync_template_dock()
         return True
@@ -849,7 +857,8 @@ class MainWindow(QMainWindow):
         self._set_message(strings.label_for("dimension_placed"))
 
     def _on_dimensions_dropped(self, count: int) -> None:
-        self._set_message(f"{count} {strings.label_for('dimensions_dropped')}")
+        key = "dimension_dropped" if count == 1 else "dimensions_dropped"
+        self._set_message(f"{count} {strings.label_for(key)}")
 
     def _on_dimension_edited(self, identifier: int, value: float) -> None:
         """A dimension that drives a template moves its parameter in the form (spec S6)."""

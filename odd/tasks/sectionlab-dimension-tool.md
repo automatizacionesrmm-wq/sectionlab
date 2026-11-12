@@ -14,8 +14,12 @@ tool the user wields, like in a CAD program.
   click fixes the first reference, the second click fixes the second reference — or a single
   click on a segment measures that segment's length — and the dimension line follows the
   cursor until the third click places it. `Esc` cancels the mode. Reference points are
-  acquired with the existing snaps (endpoint, intersection, midpoint, centre, perpendicular
-  foot), and the status bar names the snap that is being used. Quoted requirement: «debemos
+  acquired with the existing snaps: the point a snap or an alignment guide locks is the point
+  the reference is taken from, so a click near a vertex takes that vertex, a click on an edge
+  midpoint takes that midpoint, and a click anywhere else on an edge takes the perpendicular
+  foot there; the status bar names the snap that is being used. Anchors are durable (a vertex
+  or a point at parameter `t` along an edge), so a locked point that is neither — a contour
+  centre — is not available as a reference in this delivery. Quoted requirement: «debemos
   tener una herramienta de acotado como las de CAD».
 - **S3 Three kinds of dimension in this delivery.** Segment length (axis-aligned segment),
   horizontal distance between two points, vertical distance between two points. A horizontal
@@ -23,7 +27,8 @@ tool the user wields, like in a CAD program.
   decision: «Segmento + horizontal + vertical».
 - **S4 Any distance inside the section.** The two references may be any two vertices, a vertex
   and an edge midpoint, or the midpoints of two edges; they need not be consecutive vertices.
-  Quoted requirement: «la forma de acotar cualquier distancia dentro de la sección».
+  Two edge midpoints are reached by clicking each edge on its midpoint snap, while a click on
+  the body of an edge keeps measuring that whole edge. Quoted requirement: «la forma de acotar cualquier distancia dentro de la sección».
 - **S5 A dimension drives the geometry.** A double click on an editable dimension opens the
   one-line editor in the active unit; confirming makes the geometry measure the typed value in
   a single undo step. The displayed number is always measured from the geometry, never stored,
@@ -56,8 +61,10 @@ tool the user wields, like in a CAD program.
   the cursor shares their x or their y within a screen tolerance. The cursor locks to that
   coordinate, so the point that gets placed is exactly aligned, the active guide names the
   reference it belongs to in the status bar, and `Ver → Líneas de referencia` switches the
-  guides off. Guides are decoration over the geometry: they never move a vertex and never take
-  part in undo. Quoted requirement: «otra cosa que quiero tener es lo de los cad que haga como
+  guides off. This holds for the dimension line as well as for its references. While ortho is
+  on, the coordinate ortho already fixed is not aligned again — the guides align the free axis
+  only, because a guide on the fixed axis would contradict ortho. Guides are decoration over
+  the geometry: they never move a vertex and never take part in undo. Quoted requirement: «otra cosa que quiero tener es lo de los cad que haga como
   las lineas de referencia con respecto a los puntos como para saber que estoy alineado».
 
 ## Tasks
@@ -96,6 +103,20 @@ tool the user wields, like in a CAD program.
   (`vertex i` or `edge i at t`), the value is measured and never persisted, and one move rule —
   translate every vertex on the far side of a reference plane along a direction — serves the
   three kinds, which keeps the solver deterministic and testable without Qt.
+- **L5** (independent verification round over T1-T9): one read-only verifier reproduced the
+  feature headlessly and signed off S1, S3, S5-S8, S10-S12 with evidence. It failed three
+  points and the parent corrected them, keeping the specs above in step:
+  - Deleting a dimension announced «cotas eliminadas» because the dropped count compared the
+    previous list with the kept one; it now counts what the incoming snapshot could not keep.
+  - A wholesale section replacement (a different template, a new drawing) silently re-anchored
+    the old dimensions to unrelated vertices and persisted them; such a shape change now drops
+    them and says so, while rebuilding the same template keeps them.
+  - A dimension coming from a file that no longer fits was dropped without a word; it is
+    reported now.
+  Reference acquisition and the alignment guides had two gaps against S2/S4/S12: an edge
+  midpoint could not start a dimension, so no two midpoints could be measured, and the
+  dimension line ignored the guides and lost them under ortho. Anchors now come from the point
+  the snaps and guides lock, and the dimension line is locked the same way.
 
 ## Slices
 
@@ -107,3 +128,4 @@ alignment guides touch neither the dimension model nor the canvas.
 | 1 | `34c3267`, `91a1849`, `fa48fb5`, `4f84e60` | specs; alignment guides (T8); dimension model and solver (T1, T2); lock sync |
 | 2 | `567ea83` | template parameter mapping and persistence (T3, T4) |
 | 3 | `adbfe68` | canvas and window: placed dimensions, selection, drag, delete, the Acotar tool, alignment guides, commands, strings, automatic dimensions removed, README (T5, T6, T7, T9) |
+| 4 | the commit that carries L5 | what the verification round corrected: honest drop reporting, no silent carry-over across a shape change, midpoint references, guide-locked dimension lines |

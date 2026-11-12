@@ -972,4 +972,20 @@ def test_dropping_a_dimension_is_explained(window: MainWindow) -> None:
     free_rectangle(window)
     window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, SEGMENT_LENGTH, offset_mm=10.0)
     window.canvas.delete_vertex("outer", 0)
-    assert window._message_label.text() == f"1 {strings.label_for('dimensions_dropped')}"
+    assert window._message_label.text() == f"1 {strings.label_for('dimension_dropped')}"
+
+
+def test_switching_template_kind_drops_the_placed_dimensions(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value) is True
+    window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, HORIZONTAL, offset_mm=20.0)
+    assert len(window.canvas.dimensions()) == 1
+    assert window.apply_template(TemplateKind.CIRCLE.value) is True
+    assert window.canvas.dimensions() == []
+    assert strings.label_for("dimension_dropped") in window._message_label.text()
+
+
+def test_rebuilding_the_same_template_keeps_its_dimensions(window: MainWindow) -> None:
+    assert window.apply_template(TemplateKind.RECTANGLE.value) is True
+    dimension = window.canvas.add_dimension(ANCHOR_0, ANCHOR_1, HORIZONTAL, offset_mm=20.0)
+    assert window.apply_template(TemplateKind.RECTANGLE.value, {"b": 300.0, "h": 80.0}) is True
+    assert [item.id for item in window.canvas.dimensions()] == [dimension.id]

@@ -52,6 +52,7 @@ from sectionlab.core.precision import format_value
 from sectionlab.core.sketch import SketchError, set_measure
 from sectionlab.core.snap import (
     GUIDE_X,
+    GUIDE_Y,
     SnapKind,
     alignments,
     apply_alignment,
@@ -279,6 +280,8 @@ class CanvasView(QGraphicsView):
         self._tool_anchors: list[Anchor] = []
         self._guides_visible = True
         self._guides: list = []
+        self._cursor_locked: Point | None = None
+        self._cursor_place: Point | None = None
         self._pan_origin: QPoint | None = None
         self._rebuild()
 
@@ -333,9 +336,13 @@ class CanvasView(QGraphicsView):
         if record:
             self._commit_snapshot(self._snapshot(dimensions=placed), text)
             return
-        self._dimensions = [item for item in placed if self._fits(item, len(self._section.outer.points))]
+        fits = [item for item in placed if self._fits(item, len(self._section.outer.points))]
+        dropped = len(placed) - len(fits)
+        self._dimensions = fits
         self._next_dimension_id = max((item.id for item in self._dimensions), default=0) + 1
         self.viewport().update()
+        if dropped:
+            self.dimensionsDropped.emit(dropped)
 
     def dimension(self, identifier: int) -> Dimension | None:
         return next((item for item in self._dimensions if item.id == identifier), None)
@@ -483,13 +490,14 @@ class CanvasView(QGraphicsView):
         record: bool = False,
         fit: bool = True,
         text: str = "section",
+        keep_dimensions: bool = False,
     ) -> None:
         """Replace the drawing, optionally as an undoable edit with its own undo label."""
         if record:
             self._commit(section, text)
         else:
             self._undo.clear()
-            self._apply_section(section)
+            self._apply_section(section, keep_dimensions=keep_dimensions)
         if fit:
             self.fit_to_content()
 
@@ -644,8 +652,12 @@ class CanvasView(QGraphicsView):
         """
         model = Point(scene_pos.x(), -scene_pos.y())
         anchor = self._last_vertex()
+        fixed_axis: str | None = None
         if self._ortho and anchor is not None:
             model = apply_ortho(anchor, model)
+            # Ortho owns one coordinate: a guide on that same axis would fight it, so only the
+            # axis ortho left free is allowed to align (spec S12).
+            fixed_axis = GUIDE_Y if model.y == anchor.y else GUIDE_X
 
         tolerance = SNAP_TOLERANCE_PX / self.pixels_per_mm()
         contours = [c for c in (self._section.outer, self._section.inner) if c and c.points]
@@ -653,16 +665,18 @@ class CanvasView(QGraphicsView):
         found = find_snap(model, found_candidates, tolerance)
         if found is not None:
             self._guides = []
+            self._cursor_locked = found.point
+            self._cursor_place = model
             return found.point, found.kind
 
-        self._guides = (
-            alignments(found_candidates, model, tolerance)
-            if self._guides_visible and not (self._ortho and anchor is not None)
-            else []
-        )
-        if self._guides:
-            return apply_alignment(model, self._guides), None
-        return model, None
+        guides = alignments(found_candidates, model, tolerance) if self._guides_visible else []
+        if fixed_axis is not None:
+            guides = [guide for guide in guides if guide.axis != fixed_axis]
+        self._guides = guides
+        locked = apply_alignment(model, guides) if guides else model
+        self._cursor_locked = locked
+        self._cursor_place = locked
+        return locked, None
 
     def fit_to_content(self) -> None:
         """Zoom so the whole section is visible with a margin."""
@@ -747,7 +761,9 @@ class CanvasView(QGraphicsView):
         self._section = snapshot.section
         count = len(snapshot.section.outer.points)
         kept = [item for item in snapshot.dimensions if self._fits(item, count)]
-        dropped = max(0, len(self._dimensions) - len(kept)) if len(kept) < len(self._dimensions) else 0
+        # Only the incoming snapshot says what should exist: a dimension the user deleted is
+        # absent from it on purpose, one whose anchor vanished is present but does not fit.
+        dropped = len(snapshot.dimensions) - len(kept)
         self._dimensions = kept
         self._drawing = not snapshot.section.outer.closed and bool(count)
         if self._selected_dimension is not None and not any(
@@ -759,8 +775,14 @@ class CanvasView(QGraphicsView):
         if dropped:
             self.dimensionsDropped.emit(dropped)
 
-    def _apply_section(self, section: Section) -> None:
-        self._apply_snapshot(self._snapshot(section=section))
+    def _apply_section(self, section: Section, *, keep_dimensions: bool = False) -> None:
+        """Replace the whole drawing; a different shape invalidates every placed dimension."""
+        previous = len(self._dimensions)
+        placed = tuple(self._dimensions) if keep_dimensions else ()
+        self._apply_snapshot(self._snapshot(section=section, dimensions=placed))
+        lost = 0 if keep_dimensions else previous - len(self._dimensions)
+        if lost:
+            self.dimensionsDropped.emit(lost)
 
     @staticmethod
     def _fits(dimension: Dimension, count: int) -> bool:
@@ -770,7 +792,11 @@ class CanvasView(QGraphicsView):
     def _remapped(self, **change: int) -> tuple[Dimension, ...]:
         """Dimensions re-indexed after a vertex was inserted or deleted (spec S10)."""
         moved = [remap(item, **change) for item in self._dimensions]
-        return tuple(item for item in moved if item is not None)
+        kept = [item for item in moved if item is not None]
+        lost = len(moved) - len(kept)
+        if lost:
+            self.dimensionsDropped.emit(lost)
+        return tuple(kept)
 
     def _ring(self) -> list[Point]:
         outer = self._section.outer
@@ -1046,6 +1072,7 @@ class CanvasView(QGraphicsView):
             self._tool_anchors = []
             self.viewport().update()
             return True
+        self.snapped_point(scene_pos)  # re-lock at the click itself, guides included
         anchors = self._anchor_at(scene_pos)
         if not anchors:
             return False
@@ -1058,6 +1085,7 @@ class CanvasView(QGraphicsView):
 
     def _anchor_at(self, scene_pos: QPointF) -> tuple[Anchor, ...]:
         """The references one click selects: a vertex, a whole edge, or a point on an edge."""
+        model = self._cursor_locked or Point(scene_pos.x(), -scene_pos.y())
         node = self._node_at(scene_pos)
         if node is not None:
             return (Anchor(ANCHOR_VERTEX, node.index),)
@@ -1066,13 +1094,15 @@ class CanvasView(QGraphicsView):
             return ()
         points = self._ring()
         index = segment[1]
-        if not self._tool_anchors:
+        parameter = self._edge_parameter(index, model)
+        if not self._tool_anchors and parameter != 0.5:
+            # A click on the body of an edge measures that whole edge (spec S2); the edge
+            # midpoint is a reference of its own, so any two midpoints can be measured (S4).
             return (
                 Anchor(ANCHOR_VERTEX, index),
                 Anchor(ANCHOR_VERTEX, (index + 1) % len(points)),
             )
-        model = Point(scene_pos.x(), -scene_pos.y())
-        return (Anchor(ANCHOR_EDGE, index, self._edge_parameter(index, model)),)
+        return (Anchor(ANCHOR_EDGE, index, parameter),)
 
     def _edge_parameter(self, index: int, point: Point) -> float:
         """Where a click falls along an edge, snapped to an end or the middle when close."""
@@ -1110,15 +1140,16 @@ class CanvasView(QGraphicsView):
             return HORIZONTAL
         if dx <= 1e-6 and dy > 1e-6:
             return VERTICAL
-        if self._cursor_scene is None:
+        cursor = self._cursor_place
+        if cursor is None:
             return HORIZONTAL
-        cursor = Point(self._cursor_scene.x(), -self._cursor_scene.y())
         middle = Point((start.x + end.x) / 2, (start.y + end.y) / 2)
         return HORIZONTAL if abs(cursor.x - middle.x) >= abs(cursor.y - middle.y) else VERTICAL
 
     def _offset_from_cursor(self, points: list[Point], dimension: Dimension) -> float:
         """Signed distance from the measured entity to the cursor, along the normal."""
-        if self._cursor_scene is None:
+        cursor = self._cursor_place
+        if cursor is None:
             return dimension.offset_mm
         try:
             outward = normal(points, dimension)
@@ -1127,7 +1158,6 @@ class CanvasView(QGraphicsView):
         except DimensionError:
             return dimension.offset_mm
         middle = Point((start.x + end.x) / 2, (start.y + end.y) / 2)
-        cursor = Point(self._cursor_scene.x(), -self._cursor_scene.y())
         return (cursor.x - middle.x) * outward.x + (cursor.y - middle.y) * outward.y
 
     def pending_dimension(self) -> Dimension | None:
