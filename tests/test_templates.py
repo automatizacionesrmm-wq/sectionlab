@@ -215,3 +215,129 @@ def test_impossible_parameters_are_rejected(
     with pytest.raises(TemplateParameterError) as error:
         build_section(kind, params)
     assert error.value.code == code
+
+
+# --- each template declares which parameter a measure drives (spec S6) -------------------
+
+from sectionlab.core.dimensions import (  # noqa: E402
+    ANCHOR_EDGE,
+    ANCHOR_VERTEX,
+    HORIZONTAL,
+    SEGMENT_LENGTH,
+    VERTICAL,
+    Anchor,
+    Dimension,
+    measure,
+)
+from sectionlab.core.templates import (  # noqa: E402
+    default_params,
+    parameter_for,
+    parameter_override,
+)
+
+
+def span(first: int, second: int, kind: str) -> Dimension:
+    return Dimension(
+        id=1,
+        first=Anchor(ANCHOR_VERTEX, first),
+        second=Anchor(ANCHOR_VERTEX, second),
+        kind=kind,
+        offset_mm=6.0,
+    )
+
+
+def points_of(kind: TemplateKind, **overrides: float) -> list[Point]:
+    return build_section(kind, overrides).outer.points
+
+
+@pytest.mark.parametrize(
+    ("kind", "dimension", "parameter"),
+    [
+        (TemplateKind.RECTANGLE, span(0, 1, HORIZONTAL), "b"),
+        (TemplateKind.RECTANGLE, span(0, 3, VERTICAL), "h"),
+        (TemplateKind.CIRCLE, span(0, 180, HORIZONTAL), "d"),
+        (TemplateKind.PIPE, span(0, 180, HORIZONTAL), "d"),
+        (TemplateKind.TRIANGLE, span(0, 1, HORIZONTAL), "b"),
+        (TemplateKind.TRIANGLE, span(0, 2, VERTICAL), "h"),
+        (TemplateKind.POLYGON, span(0, 3, VERTICAL), "r"),
+        (TemplateKind.I_PROFILE, span(0, 1, HORIZONTAL), "b"),
+        (TemplateKind.I_PROFILE, span(0, 6, VERTICAL), "h"),
+        (TemplateKind.I_PROFILE, span(9, 4, HORIZONTAL), "tw"),
+        (TemplateKind.I_PROFILE, span(1, 2, VERTICAL), "tf"),
+        (TemplateKind.H_PROFILE, span(0, 6, VERTICAL), "h"),
+        (TemplateKind.U_CHANNEL, span(0, 1, HORIZONTAL), "b"),
+        (TemplateKind.U_CHANNEL, span(0, 7, VERTICAL), "h"),
+        (TemplateKind.U_CHANNEL, span(0, 3, HORIZONTAL), "tw"),
+        (TemplateKind.U_CHANNEL, span(1, 2, VERTICAL), "tf"),
+        (TemplateKind.L_ANGLE, span(0, 1, HORIZONTAL), "b"),
+        (TemplateKind.L_ANGLE, span(0, 5, VERTICAL), "h"),
+        (TemplateKind.L_ANGLE, span(1, 2, VERTICAL), "t"),
+        (TemplateKind.T_PROFILE, span(4, 5, HORIZONTAL), "b"),
+        (TemplateKind.T_PROFILE, span(0, 4, VERTICAL), "h"),
+        (TemplateKind.T_PROFILE, span(0, 1, HORIZONTAL), "tw"),
+        (TemplateKind.T_PROFILE, span(2, 4, VERTICAL), "tf"),
+    ],
+)
+def test_the_measure_each_template_declares(kind: TemplateKind, dimension, parameter: str) -> None:
+    assert parameter_for(kind, default_params(kind), dimension) == parameter
+
+
+@pytest.mark.parametrize(
+    ("kind", "dimension"),
+    [
+        # A web height depends on the height and on the flange thickness at once.
+        (TemplateKind.I_PROFILE, span(3, 4, VERTICAL)),
+        (TemplateKind.U_CHANNEL, span(2, 5, VERTICAL)),
+        # A triangle's base is broken by the apex offset, so its height is the only free one.
+        (TemplateKind.TRIANGLE, span(1, 2, HORIZONTAL)),
+    ],
+)
+def test_a_measure_two_parameters_share_has_no_driver(kind: TemplateKind, dimension) -> None:
+    assert parameter_for(kind, default_params(kind), dimension) is None
+
+
+def test_the_number_of_sides_is_never_driven_by_a_dimension() -> None:
+    for index in range(1, 6):
+        assert parameter_for(TemplateKind.POLYGON, default_params(TemplateKind.POLYGON), span(0, index, HORIZONTAL)) != "n"
+
+
+def test_an_edge_anchor_can_isolate_a_parameter_a_vertex_cannot() -> None:
+    """On a triangle the apex offset is measurable only against the middle of the base."""
+    dimension = Dimension(
+        id=1,
+        first=Anchor(ANCHOR_VERTEX, 2),
+        second=Anchor(ANCHOR_EDGE, 0, 0.5),
+        kind=HORIZONTAL,
+        offset_mm=6.0,
+    )
+    assert parameter_for(TemplateKind.TRIANGLE, default_params(TemplateKind.TRIANGLE), dimension) == "offset"
+
+
+def test_an_override_makes_the_measure_equal_the_target() -> None:
+    kind = TemplateKind.I_PROFILE
+    params = default_params(kind)
+    dimension = span(0, 1, HORIZONTAL)
+    override = parameter_override(kind, params, dimension, 240.0)
+    assert override is not None
+    rebuilt = build_section(kind, {**params, **override})
+    assert measure(rebuilt.outer.points, dimension) == pytest.approx(240.0)
+
+
+def test_an_override_on_a_shared_measure_is_refused() -> None:
+    kind = TemplateKind.I_PROFILE
+    assert parameter_override(kind, default_params(kind), span(3, 4, VERTICAL), 120.0) is None
+
+
+def test_an_override_that_would_break_the_section_is_refused() -> None:
+    kind = TemplateKind.RECT_HOLLOW
+    dimension = span(0, 1, HORIZONTAL)
+    assert parameter_override(kind, default_params(kind), dimension, 0.05) is None
+
+
+def test_an_override_keeps_twelve_vertices_in_the_same_order() -> None:
+    kind = TemplateKind.I_PROFILE
+    params = default_params(kind)
+    before = points_of(kind)
+    rebuilt = build_section(kind, {**params, **(parameter_override(kind, params, span(0, 1, HORIZONTAL), 240.0) or {})})
+    assert len(rebuilt.outer.points) == len(before)
+    assert [point.y for point in rebuilt.outer.points] == [point.y for point in before]

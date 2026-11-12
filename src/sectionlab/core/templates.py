@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 
+from sectionlab.core.dimensions import Dimension, DimensionError, measure
 from sectionlab.core.model import Contour, Point, Section, TemplateSpec
 
 CIRCLE_SEGMENTS = 360
@@ -348,3 +349,97 @@ _BUILDERS = {
     TemplateKind.L_ANGLE: _l_angle,
     TemplateKind.T_PROFILE: _t_profile,
 }
+
+
+# --- which parameter a placed dimension drives (spec S6, S7) -----------------------------
+#
+# Each template is linear in its parameters, so a measure has a single driver exactly when one
+# parameter changes it and no other one does. That fact is derived by probing every parameter
+# instead of being copied into a table, which means a template added later is covered without
+# a second place to keep in sync, and the mapping is still declared: `parameter_for` answers
+# with the key, `parameter_override` answers with the value that makes the measure true.
+#
+# The number of sides `n` is never a driver: it changes how many vertices the contour has, so
+# it cannot satisfy a measure anchored on a vertex index. Wall thickness `t` on the hollow
+# rectangle drives the inner contour, which this delivery does not dimension.
+
+_PROBE_STEP_RATIO = 1e-3
+_SLOPE_TOLERANCE = 1e-6
+
+
+def _drivers(
+    kind: TemplateKind, values: Mapping[str, float], dimension: Dimension
+) -> list[tuple[str, float]]:
+    """Every parameter whose own change moves this measure, with its slope."""
+    try:
+        current = measure(build_section(kind, values).outer.points, dimension)
+    except (TemplateParameterError, DimensionError):
+        return []
+
+    found: list[tuple[str, float]] = []
+    for param in parameters(kind):
+        if param.key == "n":
+            continue
+        base = values[param.key]
+        step = max(abs(base) * _PROBE_STEP_RATIO, _PROBE_STEP_RATIO)
+        try:
+            moved = build_section(kind, {**values, param.key: base + step})
+        except TemplateParameterError:
+            continue
+        try:
+            changed = measure(moved.outer.points, dimension)
+        except DimensionError:
+            continue
+        slope = (changed - current) / step
+        if abs(slope) > _SLOPE_TOLERANCE:
+            found.append((param.key, slope))
+    return found
+
+
+def _values(kind: TemplateKind, params: Mapping[str, float] | None) -> dict[str, float]:
+    values = default_params(kind)
+    values.update({key: float(value) for key, value in (params or {}).items()})
+    return values
+
+
+def parameter_for(
+    kind: TemplateKind, params: Mapping[str, float] | None, dimension: Dimension
+) -> str | None:
+    """The parameter this measure controls, or ``None`` when no single one does (spec S7)."""
+    drivers = _drivers(kind, _values(kind, params), dimension)
+    if len(drivers) != 1:
+        return None
+    return drivers[0][0]
+
+
+def parameter_override(
+    kind: TemplateKind,
+    params: Mapping[str, float] | None,
+    dimension: Dimension,
+    target_mm: float,
+    *,
+    tolerance: float = 1e-6,
+) -> dict[str, float] | None:
+    """The parameter change that makes this measure read ``target_mm``, or ``None``.
+
+    The result is verified by rebuilding the section and measuring it again, so a change that
+    would leave the measure elsewhere — or produce a section the template refuses — is
+    reported as impossible instead of being applied and hoped for.
+    """
+    values = _values(kind, params)
+    drivers = _drivers(kind, values, dimension)
+    if len(drivers) != 1:
+        return None
+
+    key, slope = drivers[0]
+    if abs(slope) <= _SLOPE_TOLERANCE:
+        return None
+    current = measure(build_section(kind, values).outer.points, dimension)
+    override = {key: values[key] + (target_mm - current) / slope}
+    try:
+        rebuilt = build_section(kind, {**values, **override})
+    except TemplateParameterError:
+        return None
+    if abs(measure(rebuilt.outer.points, dimension) - target_mm) > tolerance:
+        return None
+    return override

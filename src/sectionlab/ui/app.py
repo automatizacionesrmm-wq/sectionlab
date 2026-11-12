@@ -783,7 +783,7 @@ class MainWindow(QMainWindow):
     def open_document(self, path: str | Path) -> bool:
         source = Path(path)
         try:
-            section, unit = load(source)
+            section, unit, _dimensions = load(source)
         except DocumentError as error:
             self._report_error(strings.error_message(error.code))
             return False
