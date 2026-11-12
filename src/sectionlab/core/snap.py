@@ -149,3 +149,115 @@ def apply_ortho(origin: Point, target: Point) -> Point:
     if abs(target.x - origin.x) >= abs(target.y - origin.y):
         return Point(target.x, origin.y)
     return Point(origin.x, target.y)
+
+
+GUIDE_X = "x"
+"""Guide family of a vertical line: it shares an x with an existing reference point."""
+
+GUIDE_Y = "y"
+"""Guide family of a horizontal line: it shares a y with an existing reference point."""
+
+_TIE_EPSILON = 1e-12
+
+
+@dataclass(frozen=True)
+class Alignment:
+    """A reference line the cursor shares one coordinate with (spec S12).
+
+    `source` is the reference point the guide comes from and `delta` the absolute mismatch
+    between the cursor and `coordinate` at the moment the guide was computed. A guide is
+    decoration only: it never moves a vertex and never takes part in undo.
+    """
+
+    axis: str
+    coordinate: float
+    source: Point
+    delta: float
+
+    def line_end(self, target: Point) -> Point:
+        """Point where the guide crosses the cursor, so the canvas ends the dashed line."""
+        if self.axis == GUIDE_X:
+            return Point(self.coordinate, target.y)
+        return Point(target.x, self.coordinate)
+
+
+def _target_coordinate(target: Point, axis: str) -> float:
+    return target.x if axis == GUIDE_X else target.y
+
+
+def _candidate_coordinate(candidate: Snap, axis: str) -> float:
+    return candidate.point.x if axis == GUIDE_X else candidate.point.y
+
+
+def _precedes(
+    better: tuple[float, float, int, float], worse: tuple[float, float, int, float]
+) -> bool:
+    """Ordering of two candidate guides: mismatch on the axis, distance, then priority.
+
+    The raw coordinate is the last resort, so even two candidates of the same family that tie
+    on everything else resolve the same way whatever order the candidates arrive in.
+    """
+    better_delta, better_distance, better_priority, better_coordinate = better
+    worse_delta, worse_distance, worse_priority, worse_coordinate = worse
+    if not math.isclose(better_delta, worse_delta, abs_tol=_TIE_EPSILON):
+        return better_delta < worse_delta
+    if not math.isclose(better_distance, worse_distance, abs_tol=_TIE_EPSILON):
+        return better_distance < worse_distance
+    if better_priority != worse_priority:
+        return better_priority < worse_priority
+    if not math.isclose(better_coordinate, worse_coordinate, abs_tol=_TIE_EPSILON):
+        return better_coordinate < worse_coordinate
+    return False
+
+
+def _best_guide(
+    candidates: Sequence[Snap], target: Point, axis: str, tolerance: float
+) -> Alignment | None:
+    """Winning guide of one axis, or `None` when no candidate is within `tolerance`."""
+    best: Alignment | None = None
+    best_key: tuple[float, float, int, float] | None = None
+    for candidate in candidates:
+        coordinate = _candidate_coordinate(candidate, axis)
+        delta = abs(_target_coordinate(target, axis) - coordinate)
+        if delta > tolerance:
+            continue
+        distance = math.hypot(candidate.point.x - target.x, candidate.point.y - target.y)
+        key = (delta, distance, _PRIORITY[candidate.kind], coordinate)
+        if best_key is not None and not _precedes(key, best_key):
+            continue
+        best = Alignment(
+            axis=axis, coordinate=coordinate, source=candidate.point, delta=delta
+        )
+        best_key = key
+    return best
+
+
+def alignments(
+    candidates: Sequence[Snap], target: Point, tolerance: float
+) -> list[Alignment]:
+    """At most one guide per axis, vertical first, for the cursor at `target`.
+
+    `tolerance` is a distance in millimetres supplied by the caller. When several candidates
+    qualify for the same axis the smallest mismatch wins, ties go to the smaller Euclidean
+    distance to `target`, and a full tie falls back to the snap priority, so the result is
+    deterministic. Candidates sharing a coordinate collapse onto a single guide.
+    """
+    found: list[Alignment] = []
+    for axis in (GUIDE_X, GUIDE_Y):
+        guide = _best_guide(candidates, target, axis, tolerance)
+        if guide is not None:
+            found.append(guide)
+    return found
+
+
+def apply_alignment(target: Point, guides: Sequence[Alignment]) -> Point:
+    """Lock the cursor onto the guides, so an aligned point is exactly aligned."""
+    x, y = target.x, target.y
+    for guide in guides:
+        if guide.axis == GUIDE_X:
+            x = guide.coordinate
+        elif guide.axis == GUIDE_Y:
+            y = guide.coordinate
+    if x == target.x and y == target.y:
+        return target
+    return Point(x, y)

@@ -8,8 +8,13 @@ import pytest
 
 from sectionlab.core.model import Contour, Point
 from sectionlab.core.snap import (
+    GUIDE_X,
+    GUIDE_Y,
+    Alignment,
     Snap,
     SnapKind,
+    alignments,
+    apply_alignment,
     apply_ortho,
     candidates,
     contour_center,
@@ -138,3 +143,177 @@ def test_snap_distance_is_euclidean() -> None:
     snapped = find_snap(Point(3, 4), [Snap(Point(0, 0), SnapKind.CENTER)], 10.0)
     assert snapped is not None
     assert math.isclose(snapped.distance, 5.0)
+
+
+def test_no_guide_when_nothing_is_within_the_tolerance() -> None:
+    found = [Snap(Point(0, 0), SnapKind.ENDPOINT)]
+    assert alignments(found, Point(30, 40), 5.0) == []
+
+
+def test_empty_candidates_produce_no_guides() -> None:
+    assert alignments([], Point(0, 0), 10.0) == []
+
+
+def test_only_one_axis_can_align() -> None:
+    found = [Snap(Point(10, 50), SnapKind.ENDPOINT)]
+    guides = alignments(found, Point(12, 0), 5.0)
+    assert len(guides) == 1
+    assert guides[0].axis == GUIDE_X
+    assert guides[0].coordinate == 10.0
+    assert guides[0].source == Point(10, 50)
+    assert guides[0].delta == 2.0
+
+
+def test_the_vertical_axis_aligns_independently() -> None:
+    found = [Snap(Point(50, 10), SnapKind.MIDPOINT)]
+    guides = alignments(found, Point(0, 13), 5.0)
+    assert len(guides) == 1
+    assert guides[0].axis == GUIDE_Y
+    assert guides[0].coordinate == 10.0
+    assert guides[0].delta == 3.0
+
+
+def test_both_axes_align_at_once() -> None:
+    found = [
+        Snap(Point(10, 0), SnapKind.ENDPOINT),
+        Snap(Point(0, 20), SnapKind.ENDPOINT),
+    ]
+    guides = alignments(found, Point(11, 21), 5.0)
+    by_axis = {guide.axis: guide for guide in guides}
+    assert len(guides) == 2
+    assert by_axis[GUIDE_X].coordinate == 10.0
+    assert by_axis[GUIDE_Y].coordinate == 20.0
+    assert by_axis[GUIDE_X].delta == 1.0
+    assert by_axis[GUIDE_Y].delta == 1.0
+
+
+def test_the_closest_candidate_wins_on_one_axis() -> None:
+    found = [
+        Snap(Point(0, 100), SnapKind.ENDPOINT),
+        Snap(Point(4, 0), SnapKind.ENDPOINT),
+        Snap(Point(9, 50), SnapKind.ENDPOINT),
+    ]
+    guides = alignments(found, Point(5, 40), 6.0)
+    assert len(guides) == 1
+    assert guides[0].coordinate == 4.0
+
+
+def test_a_distance_tie_prefers_the_nearest_candidate() -> None:
+    found = [
+        Snap(Point(7, 300), SnapKind.ENDPOINT),
+        Snap(Point(7, 20), SnapKind.MIDPOINT),
+    ]
+    guides = alignments(found, Point(5, 5), 2.0)
+    assert len(guides) == 1
+    assert guides[0].source == Point(7, 20)
+
+
+def test_a_full_tie_uses_the_snap_priority() -> None:
+    found = [
+        Snap(Point(7, 500), SnapKind.MIDPOINT),
+        Snap(Point(3, 500), SnapKind.ENDPOINT),
+    ]
+    guides = alignments(found, Point(5, 5), 3.0)
+    assert len(guides) == 1
+    assert guides[0].axis == GUIDE_X
+    assert guides[0].coordinate == 3.0
+
+
+def test_the_guide_does_not_depend_on_the_candidate_order() -> None:
+    found = [
+        Snap(Point(7, 500), SnapKind.MIDPOINT),
+        Snap(Point(3, 500), SnapKind.ENDPOINT),
+    ]
+    first = alignments(found, Point(5, 5), 3.0)
+    reversed_order = alignments(list(reversed(found)), Point(5, 5), 3.0)
+    assert first == reversed_order
+
+
+def test_the_same_coordinate_never_produces_two_guides() -> None:
+    shared = 50.0
+    found = [
+        Snap(Point(shared, 0), SnapKind.ENDPOINT),
+        Snap(Point(shared, 100), SnapKind.MIDPOINT),
+        Snap(Point(shared, 50), SnapKind.CENTER),
+    ]
+    guides = alignments(found, Point(shared, 30), 5.0)
+    assert len(guides) == 1
+    assert guides[0].source == Point(shared, 50)
+
+
+def test_a_zero_tolerance_aligns_only_exactly() -> None:
+    found = [Snap(Point(10, 10), SnapKind.ENDPOINT)]
+    exact = alignments(found, Point(10, 0), 0.0)
+    assert len(exact) == 1
+    assert exact[0].axis == GUIDE_X
+    assert alignments(found, Point(10.5, 0), 0.0) == []
+
+
+def test_candidates_from_the_drawing_produce_guides() -> None:
+    guides = alignments(candidates([square()]), Point(51, 27), 2.0)
+    assert len(guides) == 1
+    assert guides[0].axis == GUIDE_X
+    assert guides[0].coordinate == 50.0
+
+
+def test_apply_alignment_moves_only_the_aligned_coordinate() -> None:
+    guides = [Alignment(axis=GUIDE_X, coordinate=10.0, source=Point(10, 90), delta=1.0)]
+    locked = apply_alignment(Point(11, 40), guides)
+    assert locked == Point(10, 40)
+    assert locked.y == 40.0
+
+
+def test_apply_alignment_moves_the_horizontal_coordinate() -> None:
+    guides = [Alignment(axis=GUIDE_Y, coordinate=20.0, source=Point(90, 20), delta=1.0)]
+    assert apply_alignment(Point(40, 21), guides) == Point(40, 20)
+
+
+def test_apply_alignment_without_guides_returns_the_same_point() -> None:
+    target = Point(12.5, -3.25)
+    assert apply_alignment(target, []) == target
+
+
+def test_apply_alignment_locks_both_axes_exactly() -> None:
+    found = [
+        Snap(Point(10, 0), SnapKind.ENDPOINT),
+        Snap(Point(0, 20), SnapKind.ENDPOINT),
+    ]
+    target = Point(11.25, 21.75)
+    locked = apply_alignment(target, alignments(found, target, 5.0))
+    assert locked == Point(10, 20)
+    assert locked.x == 10.0
+    assert locked.y == 20.0
+
+
+def test_guides_leave_the_candidates_and_the_target_untouched() -> None:
+    found = [
+        Snap(Point(0, 0), SnapKind.ENDPOINT),
+        Snap(Point(50, 50), SnapKind.MIDPOINT),
+    ]
+    before_candidates = list(found)
+    before_points = [(candidate.point.x, candidate.point.y) for candidate in found]
+    target = Point(1, 51)
+    guides = alignments(found, target, 3.0)
+    apply_alignment(target, guides)
+    assert found == before_candidates
+    assert [(candidate.point.x, candidate.point.y) for candidate in found] == before_points
+    assert target == Point(1, 51)
+
+
+def test_a_guide_meets_the_cursor_where_it_crosses_it() -> None:
+    vertical = Alignment(axis=GUIDE_X, coordinate=10.0, source=Point(10, 90), delta=1.0)
+    horizontal = Alignment(axis=GUIDE_Y, coordinate=20.0, source=Point(90, 20), delta=1.0)
+    cursor = Point(11, 21)
+    assert vertical.line_end(cursor) == Point(10, 21)
+    assert horizontal.line_end(cursor) == Point(11, 20)
+
+
+
+def test_identical_candidates_still_pick_deterministically() -> None:
+    found = [
+        Snap(Point(7, 500), SnapKind.ENDPOINT),
+        Snap(Point(3, 500), SnapKind.ENDPOINT),
+    ]
+    first = alignments(found, Point(5, 5), 3.0)
+    reversed_order = alignments(list(reversed(found)), Point(5, 5), 3.0)
+    assert first == reversed_order
