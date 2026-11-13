@@ -203,10 +203,16 @@ class _ContourItem(QGraphicsPathItem):
 
 @dataclass(frozen=True)
 class _Snapshot:
-    """Everything one undo step restores: the geometry and the dimensions placed on it."""
+    """Everything one undo step restores: geometry, dimensions and the command state.
+
+    ``drawing`` is part of the snapshot because the command is not the geometry: an open
+    contour left behind by `Esc` must stay left, and an undo that returns to a half-drawn
+    trace must return to the command that was drawing it (spec S2).
+    """
 
     section: Section
     dimensions: tuple[Dimension, ...]
+    drawing: bool = False
 
 
 class _EditCommand(QUndoCommand):
@@ -288,6 +294,7 @@ class CanvasView(QGraphicsView):
         self._unit = Unit.MM
         self._decimals = 2
         self._dims_visible = True
+        self._grid_visible = True
         self._centroid: tuple[float, float, float] | None = None
         self._value_highlight: tuple[float, str] | None = None
         self._dimension_editor: QLineEdit | None = None
@@ -522,6 +529,16 @@ class CanvasView(QGraphicsView):
             self._apply_section(section, keep_dimensions=keep_dimensions)
         if fit:
             self.fit_to_content()
+
+    def set_grid_visible(self, visible: bool) -> None:
+        """Show or hide the background grid (spec S7)."""
+        if visible == self._grid_visible:
+            return
+        self._grid_visible = visible
+        self.viewport().update()
+
+    def is_grid_visible(self) -> bool:
+        return self._grid_visible
 
     def snap_kind(self) -> SnapKind | None:
         """The snap family the cursor is on, or None (spec S5)."""
@@ -873,10 +890,12 @@ class CanvasView(QGraphicsView):
         *,
         section: Section | None = None,
         dimensions: tuple[Dimension, ...] | None = None,
+        drawing: bool | None = None,
     ) -> _Snapshot:
         return _Snapshot(
             section=self._section if section is None else section,
             dimensions=tuple(self._dimensions) if dimensions is None else tuple(dimensions),
+            drawing=self._drawing if drawing is None else drawing,
         )
 
     def _commit(self, section: Section, text: str) -> None:
@@ -897,7 +916,7 @@ class CanvasView(QGraphicsView):
         # absent from it on purpose, one whose anchor vanished is present but does not fit.
         dropped = len(snapshot.dimensions) - len(kept)
         self._dimensions = kept
-        self._drawing = not snapshot.section.outer.closed and bool(count)
+        self._drawing = snapshot.drawing
         if self._selected_dimension is not None and not any(
             item.id == self._selected_dimension for item in self._dimensions
         ):
@@ -911,7 +930,7 @@ class CanvasView(QGraphicsView):
         """Replace the whole drawing; a different shape invalidates every placed dimension."""
         previous = len(self._dimensions)
         placed = tuple(self._dimensions) if keep_dimensions else ()
-        self._apply_snapshot(self._snapshot(section=section, dimensions=placed))
+        self._apply_snapshot(self._snapshot(section=section, dimensions=placed, drawing=False))
         lost = 0 if keep_dimensions else previous - len(self._dimensions)
         if lost:
             self.dimensionsDropped.emit(lost)
@@ -1023,6 +1042,8 @@ class CanvasView(QGraphicsView):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         painter.fillRect(rect, QColor(_PALETTE["canvas"]))
+        if not self._grid_visible:
+            return
         step = self.grid_step()
         major_every = 5
         left = step * (rect.left() // step)

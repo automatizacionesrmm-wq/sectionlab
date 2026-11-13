@@ -85,6 +85,8 @@ PDF/PNG reports, **DXF import/export**.
    appear when the cursor shares an x or a y with an existing vertex, midpoint or centre, and
    lock the point to that coordinate; with ortho on they align the axis ortho leaves free.
    **Ver → Líneas de referencia** (`Ctrl+L`) turns them off.
+   **Ver → Rejilla** (`F7`) hides the background grid when you want a clean drawing; the axes and
+   their measurements stay, the choice is remembered between runs.
    Every snap family has its own button in the toolbar — **Extremo**, **Punto medio**, **Centro**,
    **Intersección** and **Perpendicular** — and each one switches on and off on its own, like the
    object-snap bar of a CAD. The choice is remembered between runs, so switch off the families

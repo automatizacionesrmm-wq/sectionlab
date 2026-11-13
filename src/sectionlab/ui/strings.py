@@ -162,6 +162,8 @@ UI: dict[str, str] = {
     "dimension_tool_second": "Acotar: elige el segundo punto",
     "dimension_tool_place": "Acotar: mueve el cursor y haz clic para colocar la cota",
     "guides": "Líneas de referencia",
+    "grid": "Rejilla",
+    "grid_tip": "Muestra u oculta la rejilla de fondo",
     "guides_tip": "Muestra cuándo el cursor comparte la X o la Y con un vértice o un punto medio",
     "snap_endpoint": "Extremo",
     "snap_midpoint": "Punto medio",

@@ -47,6 +47,15 @@ vigente; esto lo complementa.
   Quoted: «el osnad no se aprecia como debe no se marca como corresponde debe verde como en un
   cad no sabes como es un CAD?»
 
+- **S7 La rejilla se enciende y se apaga.** `Ver → Rejilla` (`F7`, con marca de verificación)
+  muestra u oculta la rejilla de fondo sin tocar el dibujo: los ejes y sus medidas siguen. La
+  preferencia se recuerda entre sesiones. Quoted: «otra cosa quiro una opcion para desactivar y
+  activar la regilla.»
+- **S8 El estado del comando no se deduce de la geometría.** Un contorno abierto es geometría,
+  no un comando en curso: solo arranca el dibujo quien pulsa el botón, y `Esc` lo deja apagado
+  aunque el trazo quede abierto. Deshacer devuelve al estado que había, comando incluido.
+  Quoted: «porque siempre esta activo el comando como para dibujar vertices?»
+
 ## Tasks
 
 | ID | Tarea | Specs | Ruta | Commit |
@@ -57,6 +66,7 @@ vigente; esto lo complementa.
 | T17 | Cinta y menús de las herramientas de edición | S4 | ui, test-first | `7dba1f3` |
 | T18 | README y ayuda: qué hay y qué no (trim/extend) | S5 | docs | `7dba1f3` |
 | T19 | Marcador de enganche verde y visible, también en plantillas | S6 | ui, test-first | `1429046` |
+| T20 | Rejilla conmutable con memoria, y el comando deja de deducirse del contorno | S7, S8 | ui, test-first | pending |
 
 ## Slices
 
@@ -66,6 +76,7 @@ vigente; esto lo complementa.
 | 2 | `7dba1f3` | comando de dibujo, Esc que conserva, selección por ventana y `Supr` (T15, T16), más las herramientas de contorno y su documentación (T17, T18) |
 
 | 3 | `1429046` | marcador de enganche como CAD (T19, S6) |
+| 4 | pending | rejilla conmutable y estado del comando (T20, S7-S8) |
 
 Los slices 2 y 3 se entregan en un mismo commit: los cambios se entrelazan en `ui/canvas.py` y
 `ui/app.py` (una herramienta necesita el estado de comando del slice 2), y separarlos por hunks
