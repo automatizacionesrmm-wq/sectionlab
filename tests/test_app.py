@@ -1232,3 +1232,16 @@ def test_an_edit_that_moves_vertices_drops_the_placed_dimensions(window: MainWin
     assert len(window.canvas.dimensions()) == 1
     window.apply_mirror("vertical")
     assert window.canvas.dimensions() == []
+
+
+def test_f7_hides_the_grid(window: MainWindow) -> None:
+    """`Ver → Rejilla` (`F7`) switches the background grid off and on (spec S7)."""
+    assert window.canvas.is_grid_visible() is True
+    window.action_grid.setChecked(False)
+    assert window.canvas.is_grid_visible() is False
+    window.action_grid.setChecked(True)
+    assert window.canvas.is_grid_visible() is True
+
+
+def test_the_grid_shortcut_is_f7(window: MainWindow) -> None:
+    assert window.action_grid.shortcut().toString() == "F7"

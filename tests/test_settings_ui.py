@@ -175,3 +175,17 @@ def test_the_settings_dialog_keeps_the_snap_choice(qtbot) -> None:
     dialog = SettingsDialog(AppSettings(snaps=(SnapKind.MIDPOINT,)))
     qtbot.addWidget(dialog)
     assert dialog.values().snaps == (SnapKind.MIDPOINT,)
+
+
+def test_the_grid_preference_is_remembered(isolated_store) -> None:
+    """`Rejilla` is on until the user turns it off, and then it stays off (spec S7)."""
+    assert load_settings().grid is True
+    save_settings(AppSettings(grid=False))
+    assert load_settings().grid is False
+    save_settings(AppSettings(grid=True))
+    assert load_settings().grid is True
+
+
+def test_the_grid_preference_survives_a_dialog_round_trip(isolated_store) -> None:
+    dialog = SettingsDialog(AppSettings(grid=False))
+    assert dialog.values().grid is False

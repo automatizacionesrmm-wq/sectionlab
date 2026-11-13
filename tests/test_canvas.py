@@ -89,6 +89,8 @@ def test_snapping_respects_the_pixel_tolerance(canvas: CanvasView) -> None:
 
 def test_ortho_locks_the_segment_to_the_dominant_axis(canvas: CanvasView) -> None:
     canvas.set_section(Section(outer=Contour(points=[Point(0, 0)], closed=False)))
+    # Ortho measures from the last vertex of the running command, not from any open contour.
+    canvas.begin_drawing()
     canvas.set_ortho(True)
     point, _ = canvas.snapped_point(QPointF(50, -5))
     assert (point.x, point.y) == pytest.approx((50.0, 0.0))
@@ -1115,6 +1117,7 @@ def test_guides_still_align_the_free_axis_while_ortho_is_on(canvas: CanvasView) 
     canvas.set_section(
         Section(outer=Contour(points=[Point(100, 50), Point(0, 0)], closed=False))
     )
+    canvas.begin_drawing()
     canvas.set_ortho(True)
     # Ortho keeps y at the last vertex (0); the free x is pulled onto the x of the other vertex.
     locked, _ = canvas.snapped_point(canvas.mapToScene(canvas.mapFromScene(QPointF(100.5, -0.5))))
@@ -1193,3 +1196,68 @@ def test_the_marker_differs_for_each_snap_family(canvas: CanvasView) -> None:
         canvas._snap_kind = kind
         counts[kind] = _green_pixels_near(canvas, 0.0, 0.0)
     assert len(set(counts.values())) > 1
+
+
+# -------------------------------------- the command state is not the geometry (S2)
+
+
+def test_an_edited_open_contour_does_not_rearm_the_draw_command(canvas: CanvasView) -> None:
+    """Leaving the command leaves it: an open contour is not a running command (S2)."""
+    canvas.begin_drawing()
+    canvas.add_vertex(0.0, 0.0)
+    canvas.add_vertex(100.0, 0.0)
+    canvas.end_drawing()
+    assert canvas.is_drawing() is False
+    canvas.move_vertex(OUTER, 0, 5.0, 0.0)
+    assert canvas.is_drawing() is False
+    canvas.delete_vertex(OUTER, 1)
+    assert canvas.is_drawing() is False
+    canvas.undo_stack().undo()
+    assert canvas.is_drawing() is False
+
+
+def test_undoing_the_end_of_the_command_returns_to_it(canvas: CanvasView) -> None:
+    """Undo restores what the snapshot recorded, command state included (S2)."""
+    canvas.begin_drawing()
+    canvas.add_vertex(0.0, 0.0)
+    canvas.add_vertex(100.0, 0.0)
+    canvas.end_drawing()
+    canvas.undo_stack().undo()
+    assert canvas.is_drawing() is True
+
+
+def test_a_section_loaded_from_a_file_is_not_a_running_command(canvas: CanvasView) -> None:
+    canvas.begin_drawing()
+    canvas.add_vertex(0.0, 0.0)
+    canvas.set_section(Section(outer=Contour(points=[Point(0, 0), Point(10, 0)], closed=False)))
+    assert canvas.is_drawing() is False
+
+
+def test_the_grid_can_be_switched_off(canvas: CanvasView) -> None:
+    """`Ver → Rejilla` hides the grid lines without touching the drawing (spec S7)."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from sectionlab.ui.theme import Theme, tokens
+
+    canvas.set_section(free_section(), fit=False)
+    canvas.resetTransform()
+    colours = {tokens(Theme.DARK)["grid_minor"], tokens(Theme.DARK)["grid_major"]}
+
+    def grid_pixels() -> int:
+        image = QImage(canvas.viewport().size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        painter = QPainter(image)
+        canvas.render(painter)
+        painter.end()
+        count = 0
+        for x in range(image.width()):
+            for y in range(image.height()):
+                if QColor(image.pixel(x, y)).name() in colours:
+                    count += 1
+        return count
+
+    assert canvas.is_grid_visible() is True
+    assert grid_pixels() > 0
+    canvas.set_grid_visible(False)
+    assert canvas.is_grid_visible() is False
+    assert grid_pixels() == 0

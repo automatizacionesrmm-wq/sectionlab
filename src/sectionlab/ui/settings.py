@@ -44,6 +44,7 @@ class AppSettings:
     decimals: int = DEFAULT_DECIMALS
     theme: Theme = Theme.DARK
     snaps: tuple[SnapKind, ...] = SNAP_KINDS
+    grid: bool = True
 
 
 def load_settings() -> AppSettings:
@@ -62,7 +63,20 @@ def load_settings() -> AppSettings:
         theme = Theme(str(store.value("theme", Theme.DARK.value)))
     except ValueError:
         theme = Theme.DARK
-    return AppSettings(unit=unit, decimals=decimals, theme=theme, snaps=load_snaps(store))
+    return AppSettings(
+        unit=unit,
+        decimals=decimals,
+        theme=theme,
+        snaps=load_snaps(store),
+        grid=load_grid(store),
+    )
+
+
+def load_grid(store: QSettings) -> bool:
+    """Whether the background grid is shown; a fresh install shows it (spec S7)."""
+    if not store.contains("grid"):
+        return True
+    return str(store.value("grid", "true")).strip().lower() not in ("false", "0", "")
 
 
 def load_snaps(store: QSettings) -> tuple[SnapKind, ...]:
@@ -83,6 +97,7 @@ def save_settings(settings: AppSettings) -> None:
     store.setValue("decimals", settings.decimals)
     store.setValue("theme", settings.theme.value)
     store.setValue("snaps", ",".join(kind.value for kind in settings.snaps))
+    store.setValue("grid", "true" if settings.grid else "false")
 
 
 class SettingsDialog(QDialog):

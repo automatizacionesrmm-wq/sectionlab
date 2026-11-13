@@ -531,6 +531,13 @@ class MainWindow(QMainWindow):
         self.action_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
         self.action_select_all.triggered.connect(self.select_all)
 
+        self.action_grid = QAction(strings.label_for("grid"), self)
+        self.action_grid.setCheckable(True)
+        self.action_grid.setChecked(self._settings.grid)
+        self.action_grid.setShortcut(QKeySequence("F7"))
+        self.action_grid.setStatusTip(strings.label_for("grid_tip"))
+        self.action_grid.toggled.connect(self.set_grid_visible)
+
         self.action_guides = QAction(strings.label_for("guides"), self)
         self.action_guides.setCheckable(True)
         self.action_guides.setChecked(True)
@@ -552,6 +559,7 @@ class MainWindow(QMainWindow):
             self._snap_actions[kind] = action
             self._snap_pairs.append((action, name))
         self.canvas.set_enabled_snaps(self._settings.snaps)
+        self.canvas.set_grid_visible(self._settings.grid)
 
         self.action_dimensions = QAction(strings.label_for("dimensions"), self)
         self.action_dimensions.setCheckable(True)
@@ -621,6 +629,7 @@ class MainWindow(QMainWindow):
         for action in (self.action_zoom_in, self.action_zoom_out, self.action_fit):
             view_menu.addAction(action)
         view_menu.addSeparator()
+        view_menu.addAction(self.action_grid)
         view_menu.addAction(self.action_ortho)
         view_menu.addAction(self.action_dimension_tool)
         view_menu.addAction(self.action_guides)
@@ -751,6 +760,17 @@ class MainWindow(QMainWindow):
         if self.canvas.is_drawing():
             return "draw"
         return None
+
+    def set_grid_visible(self, visible: bool) -> None:
+        """`F7` and Ver → Rejilla: show or hide the background grid (spec S7)."""
+        self.canvas.set_grid_visible(visible)
+        if self.action_grid.isChecked() != visible:
+            self.action_grid.blockSignals(True)
+            self.action_grid.setChecked(visible)
+            self.action_grid.blockSignals(False)
+        if self._interactive:
+            self._settings = replace(self._settings, grid=visible)
+            save_settings(self._settings)
 
     def set_draw_tool(self, active: bool) -> None:
         """Arm or leave the draw command, and keep the button honest (S1, S2)."""
@@ -1268,6 +1288,7 @@ class MainWindow(QMainWindow):
             self.set_decimals(self._settings.decimals)
             self.set_theme(self._settings.theme)
             self.set_enabled_snaps(self._settings.snaps)
+            self.set_grid_visible(self._settings.grid)
 
     # ------------------------------------------------------------------ internals
 
